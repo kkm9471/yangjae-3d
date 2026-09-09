@@ -7,7 +7,7 @@
  "mPerDegLon": 88350.79508715068,
  "chunkSize": 100,
  "builtRadius": 1000,
- "builtAt": "2026-09-09 15:54:57",
+ "builtAt": "2026-09-10 00:01:53",
  "attribution": "© OpenStreetMap contributors (ODbL)",
  "spots": [
   {
@@ -112,7 +112,7 @@
    "name": "옥상",
    "cam": [
     53.9,
-    112.9,
+    112.75,
     73.0
    ],
    "look": [

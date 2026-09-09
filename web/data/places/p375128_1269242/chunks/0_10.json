@@ -1,1 +1,1 @@
-{"cx":0,"cz":10,"buildings":[],"roads":[{"id":"w521164552","cls":"residential","w":3.0,"sw":2.0,"lanes":1,"oneway":1,"layer":0,"z":3,"tunnel":0,"bridge":0,"name":"대방동27길","pts":[[3.66,1000.0],[0.56,1059.7],[0.02,1100.0]]}],"footways":[],"crossings":[],"areas":[],"props":[]}
+{"cx":0,"cz":10,"buildings":[],"roads":[{"id":"w521164552","cls":"residential","w":3.0,"sw":2.0,"lanes":1,"oneway":1,"layer":0,"z":3,"tunnel":0,"bridge":0,"name":"대방동27길","pts":[[3.66,1000.0],[0.56,1059.68],[0.02,1100.0]]}],"footways":[],"crossings":[],"areas":[],"props":[]}

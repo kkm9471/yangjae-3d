@@ -1,13 +1,13 @@
 {
  "origin": {
-  "lat": 37.5127871,
+  "lat": 37.512787,
   "lon": 126.924181
  },
- "mPerDegLat": 110987.25119619635,
- "mPerDegLon": 88410.4485721707,
+ "mPerDegLat": 110987.25119431267,
+ "mPerDegLon": 88410.44869012789,
  "chunkSize": 100,
  "builtRadius": 1000,
- "builtAt": "2026-09-09 17:17:16",
+ "builtAt": "2026-09-10 00:01:50",
  "attribution": "© OpenStreetMap contributors (ODbL)",
  "spots": [
   {
@@ -97,14 +97,14 @@
   {
    "name": "상가 거리",
    "cam": [
-    -128.1,
+    33.3,
     1.68,
-    224.3
+    -103.2
    ],
    "look": [
-    -112.6,
+    14.5,
     7.0,
-    171.5
+    -51.5
    ],
    "mode": "walk"
   },
@@ -2323,7 +2323,7 @@
   {
    "cx": -5,
    "cz": 6,
-   "b": 4,
+   "b": 3,
    "r": 6,
    "f": 0,
    "x": 0,
@@ -3448,7 +3448,7 @@
    "f": 0,
    "x": 0,
    "a": 0,
-   "p": 1
+   "p": 2
   },
   {
    "cx": 0,
@@ -3458,7 +3458,7 @@
    "f": 0,
    "x": 0,
    "a": 0,
-   "p": 4
+   "p": 3
   },
   {
    "cx": 0,
@@ -5872,14 +5872,14 @@
   }
  ],
  "totals": {
-  "buildings": 2224,
+  "buildings": 2223,
   "roads": 1684,
   "footways": 369,
   "crossings": 5,
   "areas": 97,
   "props": 155,
   "buildings_osm": 547,
-  "buildings_gen": 1677,
+  "buildings_gen": 1676,
   "pois": 620
  }
 }
