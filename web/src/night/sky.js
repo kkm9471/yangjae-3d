@@ -55,7 +55,7 @@ export function createSky(uniforms) {
 
         // 옅은 구름
         float cl = fbm2(vec2(d.x, d.z) * (2.2/max(0.12,abs(h)+0.12)) + uTime*0.004);
-        col = mix(col, col*1.35 + uCityGlow*0.10, smoothstep(0.55,0.85,cl)*smoothstep(0.0,0.35,h)*0.55);
+        col = mix(col, col*1.22 + uCityGlow*0.05, smoothstep(0.60,0.90,cl)*smoothstep(0.0,0.30,h)*0.30);
 
         gl_FragColor = vec4(col, 1.0);
       }`,

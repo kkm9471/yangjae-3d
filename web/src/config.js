@@ -26,15 +26,15 @@ export const CFG = {
 
   // ── 연출 밀도 ──
   signDensity: 1.0,
-  treeSpacing: 11,          // 가로수 간격(m)
+  treeSpacing: 15,          // 가로수 간격(m)
   lampSpacing: 26,          // 가로등 간격(m)
-  peoplePerKm: 2600,        // 보도 1km당 보행자 수
-  carsPerKm: 42,            // 차로 1km당 차량 수
-  maxPeople: 4000,
-  maxCars: 700,
+  peoplePerKm: 260,         // 보도 1km당 보행자 수(큰길 기준, 골목은 절반 이하)
+  carsPerKm: 34,            // 차로 1km당 차량 수
+  maxPeoplePerChunk: 150,
+  maxCars: 420,
 
   // ── 후처리 ──
-  bloom: { strength: 0.46, radius: 0.62, threshold: 0.85 },
+  bloom: { strength: 0.52, radius: 0.66, threshold: 0.68 },
   exposure: 0.92,
 
   // ── 카메라 ──

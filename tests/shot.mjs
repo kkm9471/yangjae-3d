@@ -90,6 +90,20 @@ const px = await page.evaluate(() => {
   return { avg: +(sum / (d.length / 4)).toFixed(1), max: mx, nonBlackPct: +(100 * nonBlack / (d.length / 4)).toFixed(1) };
 });
 
+// PROBE="x,y;x,y" 로 특정 화소 색을 실측한다 (눈대중 대신 숫자로 판단)
+if (process.env.PROBE) {
+  const pts = process.env.PROBE.split(';').map(s => s.split(',').map(Number));
+  const cols = await page.evaluate((pts) => {
+    const c = document.querySelector('canvas');
+    const g = document.createElement('canvas');
+    g.width = c.width; g.height = c.height;
+    g.getContext('2d').drawImage(c, 0, 0);
+    const ctx = g.getContext('2d');
+    return pts.map(([x, y]) => Array.from(ctx.getImageData(x, y, 1, 1).data).slice(0, 3));
+  }, pts);
+  pts.forEach((p, i) => console.log(`화소 ${p}: rgb(${cols[i].join(',')}) = ${(cols[i].reduce((a,b)=>a+b,0)/3/255*100).toFixed(0)}%`));
+}
+
 console.log('준비완료:', ready);
 console.log('통계:', JSON.stringify(stats));
 console.log('픽셀:', JSON.stringify(px));

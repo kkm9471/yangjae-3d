@@ -17,6 +17,8 @@ import { buildRoadMesh } from './build/roads.js';
 import { createBaseGround, buildAreaMesh } from './build/ground.js';
 import { buildPropsMesh } from './build/props.js';
 import { buildSignMesh, atlas } from './build/signs.js';
+import { buildPeopleMesh } from './build/people.js';
+import { buildCarsMesh } from './build/cars.js';
 import { createSky } from './night/sky.js';
 import { CameraRig } from './controls/rig.js';
 
@@ -64,7 +66,7 @@ async function main() {
   U.uGroundFloorH = { value: CFG.groundFloorH };
 
   scene.add(createSky(U));
-  scene.add(createBaseGround(U));
+  scene.add(createBaseGround(U, 24000));
 
   // ── 청크 빌더 등록 ──
   const builders = [
@@ -72,8 +74,12 @@ async function main() {
     { key: 'road', group: 'road', fn: (c, u) => buildRoadMesh(c, u) },
     { key: 'bld', group: 'osm', fn: (c, u) => buildBuildingMesh((c.buildings || []).filter(b => !b.gen), u) },
     { key: 'bldgen', group: 'gen', fn: (c, u) => buildBuildingMesh((c.buildings || []).filter(b => b.gen), u) },
-    { key: 'prop', group: 'prop', fn: (c, u) => buildPropsMesh(c, u) },
-    { key: 'sign', group: 'sign', fn: (c, u) => buildSignMesh(c, u) },
+    // near: true → 카메라 근처 청크에만 만든다(멀어지면 걷어낸다)
+    { key: 'pool', group: 'pool', fn: (c, u) => buildPropsMesh(c, u, { geom: false, pools: true }) },
+    { key: 'prop', group: 'prop', near: true, fn: (c, u) => buildPropsMesh(c, u, { geom: true, pools: false }) },
+    { key: 'sign', group: 'sign', near: true, fn: (c, u) => buildSignMesh(c, u) },
+    { key: 'people', group: 'people', near: true, fn: (c, u) => buildPeopleMesh(c, u) },
+    { key: 'car', group: 'car', near: true, fn: (c, u) => buildCarsMesh(c, u) },
   ];
   const chunks = new ChunkManager(scene, U, index, builders);
   window.__chunks = chunks;
@@ -95,7 +101,38 @@ async function main() {
   document.getElementById('m-walk').onclick = () => rig.setMode('walk');
   document.getElementById('m-fly').onclick = () => rig.setMode('fly');
 
+  // ── 명소 ──
+  function goSpot(sp) {
+    if (!sp) return;
+    if (sp.r) {
+      CFG.viewRadius = sp.r;
+      const el0 = document.getElementById('vd');
+      if (el0) { el0.value = String(sp.r); document.getElementById('vd-v').textContent = sp.r + ' m'; }
+    }
+    rig.setMode(sp.mode || 'walk');
+    camera.position.set(sp.cam[0], sp.cam[1], sp.cam[2]);
+    const t = new THREE.Vector3(sp.look[0], sp.look[1], sp.look[2]);
+    camera.lookAt(t);
+    rig.orbit.target.copy(t);
+    const e = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+    rig.yaw = e.y; rig.pitch = e.x;
+  }
+  const spotBox = document.getElementById('spots');
+  (index.spots || []).forEach((sp, i) => {
+    const btn = document.createElement('button');
+    btn.textContent = sp.name;
+    btn.onclick = () => goSpot(sp);
+    spotBox.appendChild(btn);
+  });
+  window.__spots = index.spots || [];
+
   // ── URL 로 시점 지정(자동 검증용) ──
+  if (Q.has('spot')) {
+    const key = Q.get('spot');
+    const sp = /^\d+$/.test(key) ? (index.spots || [])[Number(key)]
+                                : (index.spots || []).find(s => s.name === key);
+    goSpot(sp);
+  }
   if (Q.has('cam')) {
     const [x, y, z] = Q.get('cam').split(',').map(Number);
     camera.position.set(x, y, z);
@@ -106,6 +143,14 @@ async function main() {
     camera.lookAt(x, y, z);
   }
   if (Q.has('mode')) rig.setMode(Q.get('mode'));
+  // ?hide=sign,gen,prop  — 원인 추적용으로 특정 종류만 끄기
+  if (Q.has('hide')) {
+    for (const g of Q.get('hide').split(',')) {
+      if (chunks.groups[g]) chunks.groups[g].visible = false;
+      const cb = document.getElementById('t-' + g);
+      if (cb) cb.checked = false;
+    }
+  }
   if (Q.has('r')) CFG.viewRadius = Number(Q.get('r'));
 
   // ── HUD ──
@@ -113,8 +158,8 @@ async function main() {
   const bind = (id, fn) => { const e = el(id); if (e) e.onchange = () => fn(e); };
   bind('t-gen', e => { chunks.groups.gen.visible = e.checked; });
   bind('t-sign', e => { if (chunks.groups.sign) chunks.groups.sign.visible = e.checked; });
-  bind('t-people', e => { if (chunks.groups.people) chunks.groups.people.visible = e.checked; });
-  bind('t-car', e => { if (chunks.groups.car) chunks.groups.car.visible = e.checked; });
+  bind('t-people', e => { chunks.groups.people.visible = e.checked; });
+  bind('t-car', e => { chunks.groups.car.visible = e.checked; });
   bind('t-bloom', e => { bloom.enabled = e.checked; });
   const vd = el('vd'); vd.oninput = () => {
     CFG.viewRadius = Number(vd.value); el('vd-v').textContent = vd.value + ' m';
@@ -187,7 +232,7 @@ async function main() {
       el('ns').textContent = chunks.stats.signs.toLocaleString();
       el('nc').textContent = `${chunks.stats.built} / ${chunks.available.size}`;
       el('dc').textContent = renderer.info.render.calls;
-      el('npc').textContent = `${(window.__people || 0).toLocaleString()} · ${(window.__cars || 0).toLocaleString()}`;
+      el('npc').textContent = `${chunks.stats.people.toLocaleString()} · ${chunks.stats.cars.toLocaleString()}`;
     }
     window.__fps = fps;
     window.__ready = chunks.isSettled(focus, CFG.viewRadius);
@@ -201,8 +246,8 @@ async function main() {
     chunks: chunks.stats.built,
     buildings: chunks.stats.buildings,
     signs: chunks.stats.signs,
-    people: window.__people || 0,
-    cars: window.__cars || 0,
+    people: chunks.stats.people,
+    cars: chunks.stats.cars,
   });
 }
 

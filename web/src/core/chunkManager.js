@@ -9,6 +9,9 @@ import { CFG } from '../config.js';
 
 const ST_NONE = 0, ST_LOADING = 1, ST_LOADED = 2, ST_BUILT = 3;
 
+// 가까운 청크에만 만드는 것들(간판·사람·차·설치물)의 기준 거리(m)
+export const NEAR_DIST = 260;
+
 export class ChunkManager {
   constructor(scene, uniforms, index, builders) {
     this.scene = scene;
@@ -30,7 +33,8 @@ export class ChunkManager {
     this.inflight = 0;
     this.maxInflight = 8;
     this.buildBudgetMs = 9;             // 한 프레임에 이만큼만 만든다(끊김 방지)
-    this.stats = { loaded: 0, built: 0, tris: 0, buildings: 0, signs: 0 };
+    this.nearDist = NEAR_DIST;
+    this.stats = { loaded: 0, built: 0, tris: 0, buildings: 0, signs: 0, people: 0, cars: 0 };
     // 걷기 충돌용: 건물 외곽선을 격자에 담아둔다
     this.collGrid = new Map();
     this.collCell = 25;
@@ -41,7 +45,7 @@ export class ChunkManager {
   _rec(cx, cz) {
     const k = this.key(cx, cz);
     let r = this.chunks.get(k);
-    if (!r) { r = { k, cx, cz, state: ST_NONE, data: null, meshes: [] }; this.chunks.set(k, r); }
+    if (!r) { r = { k, cx, cz, state: ST_NONE, data: null, meshes: [], nearMeshes: [], near: false }; this.chunks.set(k, r); }
     return r;
   }
 
@@ -101,13 +105,24 @@ export class ChunkManager {
       this._load(r);
     }
 
-    // 3) 만들기(프레임 예산 안에서)
+    // 3) 만들기(프레임 예산 안에서). 가까운 것부터.
     const t0 = performance.now();
     for (const n of need) {
       const r = this.chunks.get(n.k);
-      if (!r || r.state !== ST_LOADED) continue;
-      this._build(r);
-      if (performance.now() - t0 > this.buildBudgetMs) break;
+      if (!r) continue;
+      if (r.state === ST_LOADED) {
+        this._build(r, n.d <= this.nearDist);
+        if (performance.now() - t0 > this.buildBudgetMs) break;
+      } else if (r.state === ST_BUILT) {
+        // 멀리 있던 청크가 가까워지면 그때 연출을 얹는다(그 반대면 걷어낸다)
+        const wantNear = n.d <= this.nearDist;
+        if (wantNear && !r.near) {
+          this._buildNear(r);
+          if (performance.now() - t0 > this.buildBudgetMs) break;
+        } else if (!wantNear && r.near && n.d > this.nearDist + 60) {
+          this._dropNear(r);
+        }
+      }
     }
   }
 
@@ -129,32 +144,63 @@ export class ChunkManager {
     }
   }
 
-  _build(r) {
+  _make(r, b, into) {
+    let mesh = null;
+    try { mesh = b.fn(r.data, this.uniforms, r); }
+    catch (e) { console.error(`청크 ${r.k} / ${b.key} 생성 실패`, e); }
+    if (!mesh) return;
+    mesh.userData.chunk = r.k;
+    this.groups[b.group].add(mesh);
+    into.push(mesh);
+    this.stats.tris += mesh.userData.tris || 0;
+    for (const k of ['signs', 'people', 'cars']) {
+      if (mesh.userData[k]) this.stats[k] += mesh.userData[k];
+    }
+  }
+
+  _build(r, near) {
     r.state = ST_BUILT;
     for (const b of this.builders) {
-      let mesh = null;
-      try { mesh = b.fn(r.data, this.uniforms, r); }
-      catch (e) { console.error(`청크 ${r.k} / ${b.key} 생성 실패`, e); }
-      if (!mesh) continue;
-      mesh.userData.chunk = r.k;
-      this.groups[b.group].add(mesh);
-      r.meshes.push(mesh);
-      this.stats.tris += mesh.userData.tris || 0;
-      if (mesh.userData.signs) this.stats.signs += mesh.userData.signs;
+      if (b.near) continue;
+      this._make(r, b, r.meshes);
     }
-    // 충돌 격자에 건물 등록
+    if (near) this._buildNear(r);
     for (const bd of (r.data.buildings || [])) this._addColl(bd);
     this.stats.buildings += (r.data.buildings || []).length;
     this.stats.built++;
   }
 
-  _unload(r) {
-    for (const m of r.meshes) {
-      m.parent && m.parent.remove(m);
-      this.stats.tris -= m.userData.tris || 0;
-      if (m.userData.signs) this.stats.signs -= m.userData.signs;
-      m.geometry.dispose();
+  /** 가까운 청크에만 얹는 연출(간판·설치물·사람·차) */
+  _buildNear(r) {
+    if (r.near || !r.data) return;
+    r.near = true;
+    for (const b of this.builders) {
+      if (!b.near) continue;
+      this._make(r, b, r.nearMeshes);
     }
+  }
+
+  _dropNear(r) {
+    if (!r.near) return;
+    r.near = false;
+    for (const m of r.nearMeshes) this._disposeMesh(m);
+    r.nearMeshes = [];
+  }
+
+  _disposeMesh(m) {
+    m.parent && m.parent.remove(m);
+    this.stats.tris -= m.userData.tris || 0;
+    for (const k of ['signs', 'people', 'cars']) {
+      if (m.userData[k]) this.stats[k] -= m.userData[k];
+    }
+    m.geometry.dispose();
+  }
+
+  _unload(r) {
+    for (const m of r.meshes) this._disposeMesh(m);
+    for (const m of r.nearMeshes) this._disposeMesh(m);
+    r.nearMeshes = [];
+    r.near = false;
     if (r.state === ST_BUILT) {
       this.stats.built--;
       this.stats.buildings -= (r.data.buildings || []).length;

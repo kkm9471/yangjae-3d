@@ -47,7 +47,8 @@ uniform float uPixelScale;   // = 2*tan(fov/2) / 화면세로픽셀
 float pixelFootprint(vec3 wpos, vec3 N){
   vec3 d = wpos - cameraPosition;
   float dist = length(d);
-  float graze = max(0.14, abs(dot(normalize(N), d/max(dist,0.001))));
+  // 비스듬히 볼 때 한 축만 늘어나므로 과보정하면 멀쩡한 벽까지 평평해진다
+  float graze = max(0.45, abs(dot(normalize(N), d/max(dist,0.001))));
   return dist * uPixelScale / graze;
 }
 `;
@@ -55,6 +56,9 @@ float pixelFootprint(vec3 wpos, vec3 N){
 export const FOG_APPLY = /* glsl */`
 float fogDist = length(vWorld - cameraPosition);
 float fogF = 1.0 - exp(-uFogDensity*uFogDensity*fogDist*fogDist);
+// 낮은 곳의 안개는 거리 조명을 머금어 따뜻하게 뜨고, 위로 갈수록 식는다.
+vec3 uFogColorH = mix(uFogColor + uCityGlow*0.055, uFogColor, clamp(vWorld.y/110.0, 0.0, 1.0));
+#define uFogColor uFogColorH
 `;
 
 /** 공통 uniform 묶음을 만든다(한 곳에서 갱신하면 모든 재질에 반영된다) */

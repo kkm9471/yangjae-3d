@@ -235,18 +235,21 @@ def main():
 
         # ── 건물 ──
         if "building" in t and t.get("building") != "no":
-            for outer, holes in rings_from_element(e):
+            # 멀티폴리곤 관계 하나가 여러 동으로 쪼개진다(아파트 단지 등).
+            # 이때 id 를 공유하면 나중에 id 로 무언가를 찾을 때 엉뚱한 동이 잡힌다.
+            # → 링 번호를 붙여 유일하게 만들고, seed 도 달리해 모양이 겹치지 않게 한다.
+            for ri, (outer, holes) in enumerate(rings_from_element(e)):
                 a = G.area(outer)
                 if a < 8:
                     stat["건물_너무작아버림"] += 1
                     continue
-                seed = h32(eid, 1)
+                seed = h32(eid, 1 + ri * 977)
                 h, how = parse_height(t, a, seed)
                 cx, cz = G.centroid(outer)
                 if math.hypot(cx, cz) > R:
                     continue
                 buildings.append({
-                    "id": f"{etype[0]}{eid}",
+                    "id": f"{etype[0]}{eid}" if ri == 0 else f"{etype[0]}{eid}#{ri}",
                     "poly": [[round(p[0], 2), round(p[1], 2)] for p in G.simplify(outer, 0.35, True)],
                     "holes": [[[round(p[0], 2), round(p[1], 2)] for p in G.simplify(hh, 0.35, True)] for hh in holes],
                     "h": round(h, 2),
@@ -393,8 +396,12 @@ def main():
     # ── 상호를 건물에 붙이기 (ID 기준. 배열 순서에 의존하지 않는다) ──
     attach_pois(buildings, pois)
 
+    # ── 구경할 자리 ──
+    spots = make_spots(buildings, roads, R)
+    print(f"[명소] {len(spots)}곳: " + ", ".join(s['name'] for s in spots))
+
     # ── 청크로 나눠 쓰기 ──
-    write_chunks(buildings, roads, footways, crossings, areas, props, R)
+    write_chunks(buildings, roads, footways, crossings, areas, props, R, spots)
 
     dt = time.time() - t0
     print(f"[완료] {dt:.1f}초")
@@ -619,6 +626,127 @@ def attach_pois(buildings, pois):
     print(f"[간판] 실제 상호 {attached:,}/{len(pois):,} 개를 건물에 부착")
 
 
+# ─────────────────────────── 구경할 자리(명소) 만들기 ───────────────────────────
+def make_spots(buildings, roads, R):
+    """카메라를 놓을 만한 자리를 실제 데이터에서 골라 둔다.
+    좌표를 손으로 찍으면 건물 안에 끼기 십상이라, 보도 위이면서
+    어떤 건물 안에도 들어가지 않는 점만 후보로 삼는다."""
+    polys = [[tuple(q) for q in b["poly"]] for b in buildings]
+    for b in buildings:
+        cx, cz = G.centroid([tuple(q) for q in b["poly"]])
+        b["_cx"], b["_cz"] = cx, cz
+    CELL = 30.0
+    grid = defaultdict(list)
+    for ring in polys:
+        x0, z0, x1, z1 = G.bbox(ring)
+        for gx in range(int(x0 // CELL), int(x1 // CELL) + 1):
+            for gz in range(int(z0 // CELL), int(z1 // CELL) + 1):
+                grid[(gx, gz)].append(ring)
+
+    def free(x, z, margin=1.4):
+        for dx in (-1, 0, 1):
+            for dz in (-1, 0, 1):
+                for ring in grid.get((int(x // CELL) + dx, int(z // CELL) + dz), ()):
+                    if G.point_in_ring((x, z), ring):
+                        return False
+                    n = len(ring)
+                    for i in range(n):
+                        d, _, _ = G.dist_point_seg((x, z), ring[i], ring[(i + 1) % n])
+                        if d < margin:
+                            return False
+        return True
+
+    def sidewalk_points(name_filter, cls_min):
+        out = []
+        for r in roads:
+            if r["tunnel"] or r["z"] < cls_min:
+                continue
+            if name_filter and r["name"] != name_filter:
+                continue
+            pts = [tuple(p) for p in r["pts"]]
+            total = G.polyline_length(pts)
+            if total < 15:
+                continue
+            half = r["w"] / 2 + max(1.5, r["sw"]) * 0.5
+            for side in (1, -1):
+                line = G.offset_polyline(pts, half * side)
+                s = 3.0
+                while s < total - 3.0:
+                    p = point_at(line, s)
+                    t = point_at(line, min(total - 0.5, s + 4.0))
+                    if p and t and free(p[0], p[1]):
+                        dx, dz = t[0] - p[0], t[1] - p[1]
+                        L = math.hypot(dx, dz) or 1.0
+                        out.append((p, (dx / L, dz / L), r["name"], r["w"]))
+                    s += 12.0
+        return out
+
+    spots = []
+
+    def add(name, pos, look, mode="walk", r=None):
+        sp = {"name": name, "cam": [round(pos[0], 1), round(pos[1], 2), round(pos[2], 1)],
+              "look": [round(look[0], 1), round(look[1], 2), round(look[2], 1)], "mode": mode}
+        if r:
+            sp["r"] = r
+        spots.append(sp)
+
+    EYE = 1.68
+    main = sidewalk_points("강남대로", 5) or sidewalk_points(None, 5)
+    cross = sidewalk_points("남부순환로", 5)
+
+    # 1) 사거리에서 제일 가까운 보도 → 교차로 한복판을 본다
+    if main:
+        p, d, nm, w = min(main, key=lambda a: math.hypot(a[0][0], a[0][1]))
+        add("양재역 사거리", (p[0], EYE, p[1]), (0, 3.0, 0))
+
+    # 2~3) 강남대로를 따라 남·북으로 떨어진 지점 → 사거리 쪽을 본다
+    for label, pick in (("강남대로 북쪽", lambda a: a[0][1] < -120),
+                        ("강남대로 남쪽", lambda a: a[0][1] > 120)):
+        cand = [a for a in main if pick(a) and abs(a[0][0]) < 60]
+        if cand:
+            p, d, nm, w = min(cand, key=lambda a: abs(abs(a[0][1]) - 170))
+            add(label, (p[0], EYE, p[1]), (0, 8.0, 0))
+
+    # 4~5) 남부순환로 동·서
+    for label, pick in (("남부순환로 동쪽", lambda a: a[0][0] > 110),
+                        ("남부순환로 서쪽", lambda a: a[0][0] < -110)):
+        cand = [a for a in cross if pick(a) and abs(a[0][1]) < 70]
+        if cand:
+            p, d, nm, w = min(cand, key=lambda a: abs(abs(a[0][0]) - 160))
+            add(label, (p[0], EYE, p[1]), (0, 8.0, 0))
+
+    # 6) 이면도로(골목)
+    alley = [a for a in sidewalk_points(None, 3) if math.hypot(a[0][0], a[0][1]) < 220 and a[3] < 12]
+    if alley:
+        p, d, nm, w = alley[len(alley) // 2]
+        add("이면도로", (p[0], EYE, p[1]), (p[0] + d[0] * 60, 6.0, p[1] + d[1] * 60))
+
+    # 6-2) 간판이 제일 많은 상가 거리 (저층 상가가 몰린 곳)
+    shopish = [b for b in buildings if b["h"] < 26 and b.get("front")]
+    scand = []
+    for a in sidewalk_points(None, 3):
+        p, d, nm, w = a
+        if math.hypot(p[0], p[1]) > 260:
+            continue
+        c = sum(1 for b in shopish
+                if abs(b["_cx"] - p[0]) < 38 and abs(b["_cz"] - p[1]) < 38)
+        scand.append((c, p, d))
+    if scand:
+        c, p, d = max(scand, key=lambda x: x[0])
+        add("상가 거리", (p[0], EYE, p[1]), (p[0] + d[0] * 55, 7.0, p[1] + d[1] * 55))
+
+    # 7) 옥상 — 사거리 200m 안에서 가장 높은 건물 위
+    tall = [b for b in buildings
+            if math.hypot(*G.centroid([tuple(q) for q in b["poly"]])) < 230]
+    if tall:
+        b = max(tall, key=lambda x: x["h"])
+        c = G.centroid([tuple(q) for q in b["poly"]])
+        add("옥상", (c[0], b["h"] + 2.2, c[1]), (0, 0, 0), mode="fly", r=550)
+
+    # 8) 항공
+    add("항공 (770m)", (-380, 340, 430), (0, 0, 0), mode="orbit", r=800)
+    return spots
+
 # ─────────────────────────── 청크 분할·저장 ───────────────────────────
 def ckey(x, z, cs=CHUNK_SIZE_M):
     return (int(math.floor(x / cs)), int(math.floor(z / cs)))
@@ -673,7 +801,10 @@ def rnd2(pts):
     return [[round(p[0], 2), round(p[1], 2)] for p in pts]
 
 
-def write_chunks(buildings, roads, footways, crossings, areas, props, R):
+def write_chunks(buildings, roads, footways, crossings, areas, props, R, spots=None):
+    for b in buildings:
+        b.pop("_cx", None)
+        b.pop("_cz", None)
     os.makedirs(CHUNK_DIR, exist_ok=True)
     for f in os.listdir(CHUNK_DIR):
         if f.endswith(".json"):
@@ -713,6 +844,7 @@ def write_chunks(buildings, roads, footways, crossings, areas, props, R):
         "builtRadius": R,
         "builtAt": time.strftime("%Y-%m-%d %H:%M:%S"),
         "attribution": "© OpenStreetMap contributors (ODbL)",
+        "spots": spots or [],
         "chunks": [],
         "totals": {},
     }
