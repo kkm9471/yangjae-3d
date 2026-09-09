@@ -1,0 +1,29 @@
+{
+  "origin": {
+    "lat": 37.48453,
+    "lon": 127.034087
+  },
+  "radius_m": 1000,
+  "fetched_at": "2026-09-09 13:29:36",
+  "osm_timestamp": "2026-09-09T04:28:34Z",
+  "counts": {
+    "total": 3178,
+    "node": 1346,
+    "way": 1828,
+    "relation": 4,
+    "by_tag": {
+      "highway": 1008,
+      "public_transport": 95,
+      "amenity": 523,
+      "shop": 578,
+      "office": 18,
+      "railway": 24,
+      "leisure": 46,
+      "man_made": 9,
+      "natural": 25,
+      "building": 920,
+      "landuse": 37
+    }
+  },
+  "license": "© OpenStreetMap contributors (ODbL)"
+}
