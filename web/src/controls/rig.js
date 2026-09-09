@@ -27,6 +27,10 @@ export class CameraRig {
     this.yaw = 0; this.pitch = 0;
     this.locked = false;
 
+    // 터치 입력(TouchControls 가 매 프레임 써 넣는다). 마우스·키보드와 더해진다.
+    this.touchMove = new THREE.Vector2();   // x=오른쪽, y=앞쪽, 각각 -1~1
+    this.touchRun = false;
+
     // 걷기 상태
     this.vel = new THREE.Vector3();     // 수평 속도(m/s)
     this.groundY = 0.165;               // 발밑 높이(부드럽게 따라감)
@@ -77,10 +81,13 @@ export class CameraRig {
     });
   }
 
-  /** 마우스를 화면에 가둔다(1인칭 시점 조작). 사용자 클릭에서만 부를 수 있다. */
+  /** 마우스를 화면에 가둔다(1인칭 시점 조작). 사용자 클릭에서만 부를 수 있다.
+   *  아이폰 사파리에는 Pointer Lock 이 아예 없다. 그런 기기에서는 부르지 않는다
+   *  — 불러 봐야 실패하고, "화면을 클릭하세요" 안내만 영영 떠 있게 된다. */
   lock() {
+    if (this.touchOnly) return;
     if (this.mode !== 'orbit' && !this.locked) {
-      const r = this.dom.requestPointerLock();
+      const r = this.dom.requestPointerLock?.();
       if (r && r.catch) r.catch(() => {});
     }
   }
@@ -88,7 +95,8 @@ export class CameraRig {
   _syncHint() {
     const el = document.getElementById('lockhint');
     if (!el) return;
-    el.style.display = (this.mode !== 'orbit' && !this.locked) ? 'block' : 'none';
+    const need = (this.mode !== 'orbit' && !this.locked && !this.touchOnly);
+    el.style.display = need ? 'block' : 'none';
   }
   _syncAutoBtn() {
     const b = document.getElementById('m-auto');
@@ -102,6 +110,8 @@ export class CameraRig {
     this.orbit.enabled = (m === 'orbit');
     this.auto = false;
     this._syncAutoBtn();
+    // 손가락을 올려둔 채 모드가 바뀌면 조이스틱 입력이 남아 계속 걷는다
+    this.touch?.reset();
     if (m === 'orbit') {
       if (document.pointerLockElement) document.exitPointerLock();
       const dir = new THREE.Vector3();
@@ -172,7 +182,7 @@ export class CameraRig {
   update(dt) {
     if (this.mode === 'orbit') { this.orbit.update(); return; }
 
-    const run = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
+    const run = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') || this.touchRun;
     const p = this.camera.position;
 
     // ── 방향 결정 ──
@@ -231,6 +241,11 @@ export class CameraRig {
       if (this.keys.has('KeyS')) wish.sub(f);
       if (this.keys.has('KeyD')) wish.add(r);
       if (this.keys.has('KeyA')) wish.sub(r);
+      // 터치 조이스틱 — 키보드와 같은 자리에 더한다
+      if (this.touchMove.lengthSq() > 0) {
+        wish.addScaledVector(f, this.touchMove.y);
+        wish.addScaledVector(r, this.touchMove.x);
+      }
     }
 
     if (this.mode === 'fly') {
