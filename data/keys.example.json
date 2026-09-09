@@ -1,0 +1,9 @@
+{
+  "_설명": "이 파일을 data/keys.json 으로 복사하고 키를 채우세요. keys.json 은 git 에 올라가지 않습니다.",
+  "_브이월드": "https://www.vworld.kr 가입 → 오픈API → 인증키 발급 (즉시). 건물 층수를 위치로 바로 맞춥니다.",
+  "_공공데이터포털": "https://www.data.go.kr 가입 → '건축물대장정보 서비스' 활용신청 → 일반 인증키(Decoding)",
+  "_주소API": "https://business.juso.go.kr 가입 → 도로명주소 검색 API 승인키 (도로명주소를 지번으로 바꿀 때 필요)",
+  "vworld": "여기에 브이월드 인증키",
+  "datago": "여기에 공공데이터포털 인증키",
+  "juso": "여기에 juso.go.kr 승인키"
+}

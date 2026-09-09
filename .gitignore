@@ -90,3 +90,7 @@ desktop.ini
 # ── 실행 중 생기는 것 ──
 data/serve.log
 tests/shots/
+
+# 개인 API 키 (절대 커밋 금지)
+data/keys.json
+data/heights/

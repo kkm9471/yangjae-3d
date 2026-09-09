@@ -31,6 +31,7 @@ from names import cat_of              # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LM_TABLE = {}
+REAL_H = {}
 # 기본 경로(양재). build(...) 로 다른 동네를 만들 때는 인자로 덮어쓴다.
 RAW_PATH = os.path.join(ROOT, "data", "raw", "osm_raw.json")
 OUT_DIR = os.path.join(ROOT, "web", "data", "places", CF.DEFAULT_SLUG)
@@ -69,6 +70,17 @@ MAST_H = 55.0                      # 이 이상이면 첨탑·항공장애등
 FACADES = {"기본": 0, "벌집": 1, "세로루버": 2, "가로띠": 3, "체크": 4}
 LANDMARKS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                               "data", "landmarks.json")
+
+
+def load_heights(slug):
+    """tools/heights.py 가 만들어 둔 실측 높이표. 없으면 빈 표."""
+    p = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                     "data", "heights", f"{slug}.json")
+    try:
+        with open(p, encoding="utf-8") as f:
+            return json.load(f).get("heights") or {}
+    except Exception:
+        return {}
 
 
 def load_landmarks():
@@ -224,8 +236,11 @@ def build(raw_path=None, out_dir=None, radius=None, fill=True, density=1.0):
         CHUNK_DIR = os.path.join(out_dir, "chunks")
     R = radius or CF.RAW_RADIUS_M
 
-    global LM_TABLE
+    global LM_TABLE, REAL_H
     LM_TABLE = load_landmarks()
+    REAL_H = load_heights(os.path.basename(OUT_DIR))
+    if REAL_H:
+        print(f"[실측높이] {len(REAL_H):,}동의 실제 높이를 불러왔습니다(브이월드·건축물대장)")
 
     t0 = time.time()
     print(f"[읽기] {RAW_PATH}")
@@ -280,7 +295,13 @@ def build(raw_path=None, out_dir=None, radius=None, fill=True, density=1.0):
                     stat["건물_너무작아버림"] += 1
                     continue
                 seed = h32(eid, 1 + ri * 977)
+                bid = f"{etype[0]}{eid}" if ri == 0 else f"{etype[0]}{eid}#{ri}"
                 h, how = parse_height(t, a, seed)
+                # 실측 데이터가 있으면 추정을 덮어쓴다
+                real = REAL_H.get(bid)
+                if real and 2.0 < float(real[0]) < 400:
+                    h, how = float(real[0]), "실측"
+
                 cx, cz = G.centroid(outer)
                 if math.hypot(cx, cz) > R:
                     continue
@@ -297,7 +318,7 @@ def build(raw_path=None, out_dir=None, radius=None, fill=True, density=1.0):
                         fac = 0
                 is_lm = 1 if (nm and h >= LANDMARK_H) else 0
                 rec = {
-                    "id": f"{etype[0]}{eid}" if ri == 0 else f"{etype[0]}{eid}#{ri}",
+                    "id": bid,
                     "poly": [[round(p[0], 2), round(p[1], 2)] for p in G.simplify(outer, 0.35, True)],
                     "holes": [[[round(p[0], 2), round(p[1], 2)] for p in G.simplify(hh, 0.35, True)] for hh in holes],
                     "h": round(h, 2),
