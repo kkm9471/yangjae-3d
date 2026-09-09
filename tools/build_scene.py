@@ -740,8 +740,15 @@ def make_spots(buildings, roads, R):
             if math.hypot(*G.centroid([tuple(q) for q in b["poly"]])) < 230]
     if tall:
         b = max(tall, key=lambda x: x["h"])
-        c = G.centroid([tuple(q) for q in b["poly"]])
-        add("옥상", (c[0], b["h"] + 2.2, c[1]), (0, 0, 0), mode="fly", r=550)
+        ring = [tuple(q) for q in b["poly"]]
+        c = G.centroid(ring)
+        # 옥상 한가운데 서면 자기 지붕만 보인다.
+        # 사거리 쪽 난간 근처로 옮기고, 시선도 지평선 높이로 든다.
+        edge = min(ring, key=lambda p: math.hypot(p[0], p[1]))
+        dx, dz = c[0] - edge[0], c[1] - edge[1]
+        L = math.hypot(dx, dz) or 1.0
+        cam = (edge[0] + dx / L * 2.5, b["h"] + 1.9, edge[1] + dz / L * 2.5)
+        add("옥상", cam, (0, 45, 0), mode="fly", r=550)
 
     # 8) 항공
     add("항공 (770m)", (-380, 340, 430), (0, 0, 0), mode="orbit", r=800)

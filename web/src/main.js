@@ -27,7 +27,9 @@ const bootBar = boot.querySelector('.bar i');
 const bootMsg = document.getElementById('bootmsg');
 const errBox = document.getElementById('err');
 
+window.__errors = 0;
 function fail(msg, e) {
+  window.__errors++;
   console.error(msg, e);
   errBox.style.display = 'block';
   errBox.textContent = `문제가 생겼습니다:\n${msg}\n${e ? (e.stack || e.message || e) : ''}`;
@@ -199,6 +201,19 @@ async function main() {
   boot.style.opacity = '0';
   setTimeout(() => { boot.style.display = 'none'; }, 500);
 
+  // ── 서버에게 "아직 보고 있다" 신호 ──
+  // 이 신호가 3분간 끊기면 서버가 스스로 꺼진다.
+  // (창 없이 띄우기 때문에, 안 그러면 보이지 않는 서버가 계속 살아남는다)
+  const ping = () => fetch('./__ping', { cache: 'no-store' }).catch(() => {});
+  ping();
+  setInterval(ping, 20000);
+
+  // ── 자동 순회(검증용) ──
+  // 카메라를 계속 움직여 청크가 실제로 로드·해제되게 만든다.
+  // 정지 화면 스크린샷으로는 '버릴 때 터지는 버그'를 절대 못 잡는다.
+  const TOUR = Q.get('tour') === '1';
+  let tourT = 0;
+
   // ── 루프 ──
   const clock = new THREE.Clock();
   let acc = 0, frames = 0, fps = 0;
@@ -210,7 +225,14 @@ async function main() {
     const dt = Math.min(0.05, clock.getDelta());
     U.uTime.value += dt;
 
-    rig.update(dt);
+    if (TOUR) {
+      tourT += dt;
+      const a = tourT * 0.35;
+      camera.position.set(Math.cos(a) * 260, 40 + 22 * Math.sin(a * 0.8), Math.sin(a) * 260);
+      camera.lookAt(0, 12, 0);
+    } else {
+      rig.update(dt);
+    }
     const focus = chunks.focusOf(camera);
     chunks.update(focus, CFG.viewRadius);
 
@@ -240,6 +262,7 @@ async function main() {
   tick();
 
   window.__stats = () => ({
+    errors: window.__errors,
     fps: Math.round(window.__fps || 0),
     calls: renderer.info.render.calls,
     tris: renderer.info.render.triangles,

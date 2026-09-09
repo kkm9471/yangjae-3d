@@ -193,7 +193,10 @@ export class ChunkManager {
     for (const k of ['signs', 'people', 'cars']) {
       if (m.userData[k]) this.stats[k] -= m.userData[k];
     }
-    m.geometry.dispose();
+    // ★ 가로등·나무 묶음은 Group 이라 geometry 가 없다.
+    //   m.geometry.dispose() 를 그냥 부르면 카메라가 움직여 청크를 버리는 순간 터진다.
+    //   (정지 화면 스크린샷으로는 절대 안 잡히는 종류의 버그였다)
+    m.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
   }
 
   _unload(r) {
