@@ -241,6 +241,11 @@ def build(raw_path=None, out_dir=None, radius=None, fill=True, density=1.0):
     REAL_H = load_heights(os.path.basename(OUT_DIR))
     if REAL_H:
         print(f"[실측높이] {len(REAL_H):,}동의 실제 높이를 불러왔습니다(브이월드·건축물대장)")
+    else:
+        # 조용히 넘어가면 안 된다. 실측 파일이 없으면 도시가 통째로 '지어낸 높이'가 된다.
+        print(f"[실측높이] ⚠ 없습니다 — 건물 높이를 전부 추정합니다(평균 7m쯤 어긋남).\n"
+              f"           실제 높이를 쓰려면: python tools/heights.py "
+              f"--place {os.path.basename(OUT_DIR)}")
 
     t0 = time.time()
     print(f"[읽기] {RAW_PATH}")
