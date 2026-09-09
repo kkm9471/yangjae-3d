@@ -19,6 +19,7 @@ const FACE_WALL = 0;      // 뒷골목 쪽 벽
 const FACE_ROOF = 1;      // 옥상 바닥
 const FACE_FRONT = 2;     // 도로에 접한 벽 (1층 상가가 여기 생긴다)
 const FACE_PROP = 3;      // 옥상 구조물·난간
+const FACE_BEACON = 4;    // 항공장애등 (깜빡이는 빨간 불)
 
 // 건물 유형
 export const ST_SHOP = 0;   // 저층 상가
@@ -65,6 +66,9 @@ export function buildBuildingMesh(list, uniforms) {
     const holes = (b.holes || []).map(hr => (signedArea(hr) > 0 ? hr.slice().reverse() : hr));
 
     const st = styleOf(b);
+    // 한 숫자에 네 가지를 담는다(정점 속성을 늘리지 않으려고).
+    //   기본유형(0~2) + 외벽무늬×4 + 랜드마크×32 + 꼭대기조명×64
+    const code = st + (b.fac || 0) * 4 + (b.lm ? 32 : 0) + (b.crown ? 64 : 0);
     // ★ seed 는 반드시 작아야 한다.
     // 큰 수(수만)를 정점속성으로 보내면 삼각형 보간 오차가 hash 안의 fract()에서
     // 수백 배로 증폭돼, 창문 불빛 판정이 픽셀마다 흔들린다(소금·후추 노이즈).
@@ -84,8 +88,8 @@ export function buildBuildingMesh(list, uniforms) {
       if (L < 0.05) continue;
       const nx = dz / L, nz = -dx / L;             // 반시계 링의 바깥 법선
       const face = front.has(i) ? FACE_FRONT : FACE_WALL;
-      pushQuad(a, c, b.minh || 0, topY, [nx, 0, nz], 0, L, [seedF, face, floors, st]);
-      pushQuad(c, a, roofY, topY, [-nx, 0, -nz], 0, L, [seedF, FACE_PROP, floors, st]);
+      pushQuad(a, c, b.minh || 0, topY, [nx, 0, nz], 0, L, [seedF, face, floors, code]);
+      pushQuad(c, a, roofY, topY, [-nx, 0, -nz], 0, L, [seedF, FACE_PROP, floors, code]);
     }
 
     // ── 옥상 ──
@@ -99,7 +103,7 @@ export function buildBuildingMesh(list, uniforms) {
         pos.push(v.x, roofY, v.y);
         nrm.push(0, 1, 0);
         uv.push(v.x, v.y);
-        meta.push(seedF, FACE_ROOF, floors, st);
+        meta.push(seedF, FACE_ROOF, floors, code);
       }
       vbase += all.length;
       for (const f of faces) {
@@ -109,6 +113,16 @@ export function buildBuildingMesh(list, uniforms) {
         else idx.push(start + f[0], start + f[1], start + f[2]);
       }
     } catch (e) { /* 자기교차 폴리곤은 옥상 생략 */ }
+
+    // ── 첨탑 + 항공장애등 (높은 랜드마크) ──
+    if (b.mast) {
+      const mx = ring.reduce((s2, q) => s2 + q[0], 0) / n;
+      const mz = ring.reduce((s2, q) => s2 + q[1], 0) / n;
+      const mb = { pos, nrm, uv, meta, idx };
+      const mh = 5 + rnd(seedF, 21) * 4;
+      vbase = addBox(mb, vbase, mx, topY, mz, 0.34, mh, 0.34, [seedF, FACE_PROP, floors, code]);
+      vbase = addBox(mb, vbase, mx, topY + mh, mz, 0.7, 0.7, 0.7, [seedF, FACE_BEACON, floors, code]);
+    }
 
     // ── 옥상 구조물 ──
     if (b.h > 9 && b.area > 60) {
@@ -122,7 +136,7 @@ export function buildBuildingMesh(list, uniforms) {
         const bx = cx + Math.cos(ang) * rad, bz = cz + Math.sin(ang) * rad;
         const w = 0.9 + rnd(seedF, 60 + k) * 2.2, d = 0.9 + rnd(seedF, 70 + k) * 2.0;
         const hh = 0.8 + rnd(seedF, 80 + k) * 2.2;
-        vbase = addBox(box, vbase, bx, roofY, bz, w, hh, d, [seedF, FACE_PROP, floors, st]);
+        vbase = addBox(box, vbase, bx, roofY, bz, w, hh, d, [seedF, FACE_PROP, floors, code]);
       }
     }
   }
@@ -201,7 +215,14 @@ export function buildingMaterial(uniforms) {
       void main(){
         float seed   = vMeta.x;
         float face   = vMeta.y;
-        float style  = vMeta.w;
+        float floorsN = vMeta.z;
+        // 한 숫자에 담아 보낸 네 가지를 풀어낸다
+        float code = vMeta.w;
+        float crownOn = floor(code / 64.0);  code -= crownOn * 64.0;
+        float isLm    = floor(code / 32.0);  code -= isLm * 32.0;
+        float fac     = floor(code / 4.0);   code -= fac * 4.0;
+        float style   = code;
+        float topH = uGroundFloorH + max(0.0, floorsN - 1.0) * uFloorH;
         float u = vUv.x, v = vUv.y;
 
         // 이 화소가 벽면에서 몇 m를 덮는가 → 무늬를 그릴지 평균색으로 갈지 판단
@@ -214,6 +235,11 @@ export function buildingMaterial(uniforms) {
           // ── 옥상 바닥 ──
           base = vec3(0.082,0.082,0.086) * (0.8 + 0.45*fbm2(vUv*0.35 + seed*0.29));
           base = mix(base, vec3(0.062,0.063,0.067), step(0.55, noise2(vUv*0.12+seed*0.37))*0.6);
+        }
+        else if(face > 3.5){
+          // ── 항공장애등: 2초 주기로 깜빡인다 ──
+          base = vec3(0.10,0.03,0.03);
+          emis += vec3(1.0,0.06,0.04) * (0.12 + 0.88*step(0.55, fract(uTime*0.5))) * 3.2 * uArtificial;
         }
         else if(face > 2.5){
           // ── 난간·옥상 구조물 ──
@@ -266,6 +292,35 @@ export function buildingMaterial(uniforms) {
             float ci = floor(u/colW), cu = fract(u/colW);
             float sharpWin = box2(vec2(cu, fy), vec2(wl,wb), vec2(wr,wt));
 
+            // ── 외벽 무늬 (랜드마크는 저마다 다른 얼굴을 갖는다) ──
+            if(fac > 0.5 && fac < 1.5){            // 벌집창
+              float cell = 2.3;
+              float qy = v/(cell*0.87);
+              float row = floor(qy);
+              float ox = mod(row, 2.0)*0.5;
+              float qx = u/cell - ox;
+              vec2 f2 = vec2(fract(qx)-0.5, fract(qy)-0.5);
+              float rr = length(vec2(f2.x, f2.y*0.87));
+              sharpWin = 1.0 - smoothstep(0.28, 0.33, rr);
+              cov = 0.30; colW = cell; ci = floor(qx); fi = row;
+            } else if(fac > 1.5 && fac < 2.5){     // 세로 루버
+              colW = 1.20;
+              cu = fract(u/colW); ci = floor(u/colW);
+              sharpWin = box2(vec2(cu, fy), vec2(0.20,0.03), vec2(0.80,0.97));
+              cov = 0.58;
+            } else if(fac > 2.5 && fac < 3.5){     // 가로 띠 커튼월
+              colW = 3.4;
+              cu = fract(u/colW); ci = floor(u/colW);
+              sharpWin = step(0.16, fy) * step(fy, 0.88);
+              cov = 0.72;
+            } else if(fac > 3.5){                  // 체크무늬
+              colW = 2.1;
+              cu = fract(u/colW); ci = floor(u/colW);
+              float ck = mod(ci + fi, 2.0);
+              sharpWin = box2(vec2(cu, fy), vec2(0.07,0.09), vec2(0.93,0.91)) * (0.30 + 0.70*ck);
+              cov = 0.48;
+            }
+
             float r = hash12(vec2(ci*7.13 + seed*0.0911, fi*3.71 + seed*0.0431));
             float ratio = uLitRatio*litBias;
             float sharpLit = step(r, ratio);
@@ -302,6 +357,15 @@ export function buildingMaterial(uniforms) {
           }
 
           base *= 0.88 + 0.24*fbm2(vec2(u*0.28, v*0.22) + seed*0.23);
+
+          // ── 꼭대기 조명 ──
+          // 서울 밤하늘에서 높은 건물을 알아보게 하는 건 대개 이 띠다.
+          if(isLm > 0.5 && topH > 24.0){
+            float band = smoothstep(topH - 11.0, topH - 3.0, v) * step(v, topH + 1.2);
+            vec3 cc = mix(vec3(0.35,0.72,1.00), vec3(1.00,0.72,0.32), hash11(seed*0.0971 + 5.0));
+            if(crownOn > 0.5) cc = mix(cc, vec3(1.00,0.80,0.40), 0.6);
+            emis += cc * band * (crownOn > 0.5 ? 0.55 : 0.34) * uArtificial;
+          }
 
           // 길바닥·간판에서 튀어 오르는 빛 — 아래층일수록 따뜻하게 밝다.
           // 이게 없으면 건물이 '까만 상자에 창문만 뚫린 것'처럼 보인다.

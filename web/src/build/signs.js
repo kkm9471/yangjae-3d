@@ -210,8 +210,23 @@ export function buildSignMesh(chunk, uniforms) {
         if (count > 900) break;
       }
 
-      // 고층 건물 꼭대기의 건물 이름 띠 (OSM에 실제 이름이 있으면 그걸 쓴다)
-      if (st === ST_TOWER && b.name && L > 8 && ei === front[0]) {
+      // ── 옥상 네임사인 ──
+      // 실제 이름이 있는 큰 건물은 옥상에 간판이 서 있다. 서울 야경에서
+      // "저게 무슨 건물이지"를 바로 알게 해 주는 게 대개 이것이다.
+      if (b.lm && b.name && L > 9 && ei === front[0]) {
+        const nm = b.name.split(' (')[0].split('(')[0].trim().slice(0, 12);
+        const r = A.get(nm, 'office', false);
+        const wS = Math.min(L * 0.78, 17);
+        const hS = Math.max(2.0, Math.min(3.4, wS * 0.19));
+        const yb = b.h + 0.7;                       // 옥상 난간 위에 세운다
+        const bx = a[0] + tx * (L - wS) / 2, bz = a[1] + tz * (L - wS) / 2;
+        // 앞뒤 두 면 (양쪽에서 다 보이게)
+        quad([bx, yb, bz], right, up, wS, hS, r, 1.35);
+        quad([bx + tx * wS, yb, bz + tz * wS], [-tx, 0, -tz], up, wS, hS, r, 1.35);
+        // 받침 기둥 두 개 대신 얇은 띠 하나(폴리곤 절약)
+        quad([bx, b.h + 0.05, bz], right, up, wS, 0.65, r, 0.35);
+      } else if (st === ST_TOWER && b.name && L > 8 && ei === front[0]) {
+        // 이름은 있지만 낮은 건물은 벽면 상단에 띠로
         const r = A.get(b.name.split(' (')[0].slice(0, 12), 'office', false);
         const wS = Math.min(L * 0.7, 11);
         const yb = b.h - 3.4;

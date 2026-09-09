@@ -30,6 +30,7 @@ from config import to_local        # noqa: E402  (함수는 호출 시점에 con
 from names import cat_of              # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LM_TABLE = {}
 # 기본 경로(양재). build(...) 로 다른 동네를 만들 때는 인자로 덮어쓴다.
 RAW_PATH = os.path.join(ROOT, "data", "raw", "osm_raw.json")
 OUT_DIR = os.path.join(ROOT, "web", "data", "places", CF.DEFAULT_SLUG)
@@ -60,6 +61,32 @@ FILLABLE = {"primary", "secondary", "tertiary", "residential", "unclassified", "
 # 층수→높이 추정에 쓰는 층고
 FLOOR_H = 3.35
 GROUND_FLOOR_H = 4.3
+
+# ── 랜드마크(눈에 띄는 건물) 규칙 ──
+# 이름이 있고 이만큼 높으면 '옥상 네임사인 + 항공장애등 + 꼭대기 조명'을 준다.
+LANDMARK_H = 35.0
+MAST_H = 55.0                      # 이 이상이면 첨탑·항공장애등
+FACADES = {"기본": 0, "벌집": 1, "세로루버": 2, "가로띠": 3, "체크": 4}
+LANDMARKS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                              "data", "landmarks.json")
+
+
+def load_landmarks():
+    try:
+        with open(LANDMARKS_PATH, encoding="utf-8") as f:
+            return (json.load(f).get("byName") or {})
+    except Exception:
+        return {}
+
+
+def landmark_rule(name, table):
+    """건물 이름에 표의 키가 들어 있으면 그 규칙을 돌려준다."""
+    if not name:
+        return None
+    for key, rule in table.items():
+        if key and key in name:
+            return rule
+    return None
 
 
 def h32(*vals) -> int:
@@ -197,6 +224,9 @@ def build(raw_path=None, out_dir=None, radius=None, fill=True, density=1.0):
         CHUNK_DIR = os.path.join(out_dir, "chunks")
     R = radius or CF.RAW_RADIUS_M
 
+    global LM_TABLE
+    LM_TABLE = load_landmarks()
+
     t0 = time.time()
     print(f"[읽기] {RAW_PATH}")
     els = load(RAW_PATH)
@@ -254,7 +284,19 @@ def build(raw_path=None, out_dir=None, radius=None, fill=True, density=1.0):
                 cx, cz = G.centroid(outer)
                 if math.hypot(cx, cz) > R:
                     continue
-                buildings.append({
+                nm = t.get("name") or ""
+                rule = landmark_rule(nm, LM_TABLE)
+                fac = FACADES.get((rule or {}).get("facade", ""), None)
+                if fac is None:
+                    # 규칙이 없으면 높이·용도에 따라 자동으로 고른다(같은 건물은 항상 같은 무늬)
+                    if h >= 45:
+                        fac = [0, 3, 4, 2][h32(seed, 91) % 4]
+                    elif h >= 26:
+                        fac = [0, 0, 3, 2][h32(seed, 92) % 4]
+                    else:
+                        fac = 0
+                is_lm = 1 if (nm and h >= LANDMARK_H) else 0
+                rec = {
                     "id": f"{etype[0]}{eid}" if ri == 0 else f"{etype[0]}{eid}#{ri}",
                     "poly": [[round(p[0], 2), round(p[1], 2)] for p in G.simplify(outer, 0.35, True)],
                     "holes": [[[round(p[0], 2), round(p[1], 2)] for p in G.simplify(hh, 0.35, True)] for hh in holes],
@@ -265,7 +307,15 @@ def build(raw_path=None, out_dir=None, radius=None, fill=True, density=1.0):
                     "gen": 0,
                     "seed": seed % 100000,
                     "area": round(a, 1),
-                })
+                    "fac": fac,
+                    "lm": is_lm,
+                }
+                if is_lm and (h >= MAST_H or (rule or {}).get("mast")):
+                    rec["mast"] = 1
+                crown = (rule or {}).get("crown")
+                if crown and len(crown) == 3:
+                    rec["crown"] = [round(float(c), 3) for c in crown]
+                buildings.append(rec)
                 stat["높이_" + how] += 1
             continue
 
@@ -385,6 +435,9 @@ def build(raw_path=None, out_dir=None, radius=None, fill=True, density=1.0):
                               "name": t.get("name", "")})
                 stat["점_" + kind] += 1
 
+    nlm = sum(1 for b in buildings if b.get("lm"))
+    print(f"[랜드마크] 이름 있고 {LANDMARK_H:.0f}m 이상: {nlm}동 "
+          f"(첨탑 {sum(1 for b in buildings if b.get('mast'))}동)")
     print(f"[파싱] 건물 {len(buildings):,} / 도로 {len(roads):,} / 보행로 {len(footways):,} / "
           f"횡단보도 {len(crossings):,} / 면 {len(areas):,} / 점 {len(props):,} / 상호 {len(pois):,}")
 
@@ -495,6 +548,7 @@ def fill_streets(roads, buildings, areas, R, density):
                     "cat": "commercial" if floors <= 8 else "office",
                     "name": "", "gen": 1, "seed": sd % 100000,
                     "area": round(G.area(ring), 1),
+                    "fac": ([0, 0, 3, 2][h32(sd, 93) % 4] if h >= 30 else 0), "lm": 0,
                 })
                 grid.insert(ring)
                 s += front + 0.6 + 2.4 * frand(sd, 6)
