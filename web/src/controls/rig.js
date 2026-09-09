@@ -140,6 +140,15 @@ export class CameraRig {
         || c.insideBuilding(x, z + BODY_R) || c.insideBuilding(x, z - BODY_R);
   }
 
+  /** yaw 방향으로 dist 미터가 뚫려 있는가 */
+  _freeAhead(x, z, yaw, dist) {
+    const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+    for (let t = 1.0; t <= dist; t += 1.0) {
+      if (this._blocked(x + fx * t, z + fz * t)) return false;
+    }
+    return true;
+  }
+
   /** 자동 산책: 가장 가까운 도로의 보도를 따라간다 */
   _autoSteer(p) {
     const n = this.chunks.nearestRoadSeg(p.x, p.z);
@@ -155,7 +164,7 @@ export class CameraRig {
     // 앞을 얼마나 멀리 보느냐가 곧 '보도 중앙으로 얼마나 세게 붙느냐'다.
     // 멀리 보면 부드럽지만 차도로 흘러나가고, 가까이 보면 붙지만 갈지자로 걷는다.
     const err = Math.hypot(p.x - lineX, p.z - lineZ);
-    const look = err > 3 ? 4 : 7;
+    const look = err > 3 ? 6 : 11;
     const tx = lineX + n.dirX * along * look, tz = lineZ + n.dirZ * along * look;
     return { x: tx, z: tz };
   }
@@ -169,13 +178,46 @@ export class CameraRig {
     // ── 방향 결정 ──
     if (this.auto && this.mode === 'walk') {
       const t = this._autoSteer(p);
-      if (t) {
-        const want = Math.atan2(-(t.x - p.x), -(t.z - p.z));
+      let want = null;
+      if (t) want = Math.atan2(-(t.x - p.x), -(t.z - p.z));
+
+      // ★ 앞이 막혀 있으면 열린 쪽으로 튼다.
+      //   예전에는 보도 중심선만 보고 걸어서, 막다른 골목에 들어가면
+      //   벽을 계속 밀기만 하고 영영 못 빠져나왔다.
+      const probe = want === null ? this.yaw : want;
+      if (!this._freeAhead(p.x, p.z, probe, 3.0)) {
+        let found = null;
+        for (const off of [0.35, -0.35, 0.7, -0.7, 1.1, -1.1, 1.6, -1.6, 2.2, -2.2, Math.PI]) {
+          const cand = this.yaw + off;
+          if (this._freeAhead(p.x, p.z, cand, 3.5)) { found = cand; break; }
+        }
+        if (found !== null) want = found;
+      }
+
+      if (want !== null) {
         let d = want - this.yaw;
         while (d > Math.PI) d -= Math.PI * 2;
         while (d < -Math.PI) d += Math.PI * 2;
-        this.yaw += d * Math.min(1, dt * 2.2);     // 부드럽게 방향 전환
-        this.pitch += (-0.04 - this.pitch) * Math.min(1, dt * 1.5);
+        // 작은 오차는 무시한다. 계속 미세보정하면 화면이 좌우로 흔들려 멀미가 난다.
+        if (Math.abs(d) > 0.035) this.yaw += d * Math.min(1, dt * 1.7);
+        this.pitch += (-0.03 - this.pitch) * Math.min(1, dt * 1.5);
+      }
+
+      // 그래도 못 움직이면(구석에 낀 경우) 뒤로 돌아 나온다
+      const sp2 = Math.hypot(this.vel.x, this.vel.z);
+      if (sp2 < 0.35) {
+        this._stall = (this._stall || 0) + dt;
+        if (this._stall > 0.9) {
+          this._stall = 0;
+          let esc = null;
+          for (const off of [Math.PI, 2.4, -2.4, 1.9, -1.9, 1.3, -1.3]) {
+            if (this._freeAhead(p.x, p.z, this.yaw + off, 4)) { esc = this.yaw + off; break; }
+          }
+          this.yaw = esc !== null ? esc : this.yaw + Math.PI;
+          this.vel.set(0, 0, 0);
+        }
+      } else {
+        this._stall = 0;
       }
     }
 
@@ -227,21 +269,26 @@ export class CameraRig {
     const gy = this.chunks.groundAt(p.x, p.z);
     this.groundY += (gy - this.groundY) * Math.min(1, dt * 8.5);
 
-    // 걸음 흔들림
+    // ── 걸음 흔들림 ──
+    // ★ 좌우로 기우는(roll) 흔들림은 넣지 않는다.
+    //   아무리 작아도 오래 보면 멀미가 난다(실제로 그랬다).
+    //   위아래도 걸을 때는 6mm 수준으로만, 달릴 때만 눈에 띄게 키운다.
     const speed = Math.hypot(this.vel.x, this.vel.z);
     this.walked += speed * dt;
-    const amp = Math.min(1, speed / CFG.walkSpeed);
     const ph = (this.walked / STEP_LEN) * Math.PI;
-    const bobY = Math.abs(Math.sin(ph)) * 0.042 * amp - 0.021 * amp;
-    const bobRoll = Math.sin(ph * 0.5) * 0.011 * amp;
+    const runFrac = Math.min(1, Math.max(0, (speed - CFG.walkSpeed) / (CFG.runSpeed - CFG.walkSpeed)));
+    const moving = Math.min(1, speed / 1.2);
+    const bobAmp = CFG.bobScale * moving * (0.006 + 0.022 * runFrac);
+    const bobY = (Math.abs(Math.sin(ph)) - 0.5) * 2 * bobAmp;
 
-    // 옆걸음이면 몸이 살짝 기운다
+    // 옆걸음일 때만 아주 살짝 기운다(정면으로 걸을 때는 0)
     const strafe = this.vel.x * r.x + this.vel.z * r.z;
-    this.strafeRoll += (-strafe / CFG.runSpeed * 0.045 - this.strafeRoll) * Math.min(1, dt * 6);
+    const wantRoll = -strafe / CFG.runSpeed * 0.014 * CFG.bobScale;
+    this.strafeRoll += (wantRoll - this.strafeRoll) * Math.min(1, dt * 5);
 
     p.y = this.groundY + CFG.eyeHeight + bobY;
     this.camera.quaternion.setFromEuler(
-      new THREE.Euler(this.pitch, this.yaw, bobRoll + this.strafeRoll, 'YXZ'));
+      new THREE.Euler(this.pitch, this.yaw, this.strafeRoll, 'YXZ'));
     this._fov(dt, run && speed > 4 ? 5 : 0);
 
     // 발소리 — 보폭마다 한 번

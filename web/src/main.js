@@ -206,7 +206,8 @@ async function main() {
   bind('t-car', e => { chunks.groups.car.visible = e.checked; });
   bind('t-bloom', e => { bloom.enabled = e.checked; });
   bind('t-sound', e => { soundOn = e.checked; foley.setEnabled(soundOn); });
-  bind('t-map', e => { document.getElementById('nav').style.display = e.checked ? 'block' : 'none'; });
+  bind('t-map', e => { document.getElementById('nav').style.display = e.checked ? 'flex' : 'none'; });
+  bind('t-bob', e => { CFG.bobScale = e.checked ? 1 : 0; });
   bind('t-gen', e => { minimap.showGen = e.checked; });
   const vd = el('vd'); vd.oninput = () => {
     CFG.viewRadius = Number(vd.value); el('vd-v').textContent = vd.value + ' m';

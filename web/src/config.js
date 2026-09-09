@@ -40,6 +40,7 @@ export const CFG = {
 
   // ── 카메라 ──
   eyeHeight: 1.68,
+  bobScale: 1.0,            // 걸음 흔들림 세기 (0이면 완전히 고정)
   walkSpeed: 3.6,
   runSpeed: 9.0,
   flySpeed: 26,
