@@ -44,7 +44,39 @@ export const CFG = {
   walkSpeed: 3.6,
   runSpeed: 9.0,
   flySpeed: 26,
+
+  // ── 기기 등급 (applyDeviceTier 가 정한다) ──
+  tier: 'high',
+  maxPixelRatio: 2,         // 아이폰은 화소비율이 3이라 그대로 두면 9배를 그린다
 };
+
+/**
+ * 이 기기가 감당할 만한 수준으로 연출 밀도를 낮춘다.
+ *
+ * 폰은 화면이 작아서 밀도를 줄여도 티가 잘 안 나지만, 그리는 양은 크게 준다.
+ * 특히 화소비율이 중요하다 — 아이폰은 devicePixelRatio 가 3이라
+ * 그대로 그리면 데스크톱보다 훨씬 많은 화소를 칠하게 된다.
+ *
+ * @param {string|null} force  'low' | 'high' — ?perf= 로 강제(실제 기기에서 비교해 보려고)
+ */
+export function applyDeviceTier(force) {
+  // 마우스가 없고 손가락으로 찍는 기기 = 폰·태블릿
+  const coarse = typeof matchMedia === 'function'
+    && matchMedia('(hover: none) and (pointer: coarse)').matches;
+  const tier = (force === 'low' || force === 'high') ? force : (coarse ? 'low' : 'high');
+  if (tier === 'low') {
+    CFG.viewRadius = 170;
+    CFG.maxPeoplePerChunk = 40;
+    CFG.maxCars = 110;
+    CFG.peoplePerKm = 110;
+    CFG.carsPerKm = 16;
+    CFG.treeSpacing = 22;
+    CFG.lampSpacing = 34;
+    CFG.maxPixelRatio = 1.5;
+  }
+  CFG.tier = tier;
+  return tier;
+}
 
 // 도로 등급별 색·표시 규칙
 export const ROAD_STYLE = {

@@ -9,7 +9,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
-import { CFG } from './config.js';
+import { CFG, applyDeviceTier } from './config.js';
 import { makeSceneUniforms } from './util/glsl.js';
 import { ChunkManager } from './core/chunkManager.js';
 import { buildBuildingMesh } from './build/buildings.js';
@@ -22,6 +22,7 @@ import { buildCarsMesh } from './build/cars.js';
 import { createSky } from './night/sky.js';
 import { applyTime, fmtHour, sunTimes } from './night/daycycle.js';
 import { CameraRig } from './controls/rig.js';
+import { TouchControls, isTouchDevice } from './controls/touch.js';
 import { Minimap } from './ui/minimap.js';
 import { Foley } from './audio/foley.js';
 
@@ -62,11 +63,13 @@ async function main() {
   bootBar.style.width = '15%';
 
   // ── 렌더러 ──
+  // 폰이면 먼저 연출 밀도를 낮춘다. 청크를 만들기 전에 정해야 효과가 있다.
+  const tier = applyDeviceTier(Q.get('perf'));
   const renderer = new THREE.WebGLRenderer({
-    antialias: true, powerPreference: 'high-performance',
+    antialias: tier === 'high', powerPreference: 'high-performance',
     preserveDrawingBuffer: Q.has('shot'),
   });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, CFG.maxPixelRatio));
   renderer.setSize(innerWidth, innerHeight);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = CFG.exposure;
