@@ -297,10 +297,28 @@ def build(raw_path=None, out_dir=None, radius=None, fill=True, density=1.0):
                 seed = h32(eid, 1 + ri * 977)
                 bid = f"{etype[0]}{eid}" if ri == 0 else f"{etype[0]}{eid}#{ri}"
                 h, how = parse_height(t, a, seed)
-                # 실측 데이터가 있으면 추정을 덮어쓴다
+                # 실측 데이터가 있으면 추정을 덮어쓴다.
+                #
+                # 다만 '실측'도 틀린다. 브이월드 건물도형에는 래미안 리더스원
+                # (실제 35층, 약 100m)이 동마다 '지상 1층'으로 등록돼 있었다.
+                # 도형은 동별로 정확한데 층수만 갱신이 안 된 것이라, 면적·위치로는
+                # 걸러낼 방법이 없다. 유일하게 이를 반증하는 근거가 OSM 의
+                # height/층수 태그(누군가 실제로 조사해 넣은 값)다.
+                # → 브이월드 층수에서 나온 값이 그 태그의 절반도 안 되면 태그를 믿는다.
+                #
+                # 낮아지는 쪽만 막는다. 실제로 확인된 고장이 그 방향뿐이고
+                # (35층이 1층으로 등록), 반대 방향(태그는 낮은데 실측이 높음)은
+                # 실측이 맞는 경우가 섞여 있어 함부로 막으면 멀쩡한 보정까지 죽는다.
+                # 건축물대장 값은 법정 원부라 이 제한을 두지 않는다.
                 real = REAL_H.get(bid)
                 if real and 2.0 < float(real[0]) < 400:
-                    h, how = float(real[0]), "실측"
+                    rh, src = float(real[0]), real[1]
+                    if (how in ("height태그", "층수태그")
+                            and src.startswith("브이월드")
+                            and rh < 0.45 * h):
+                        stat["실측무시_태그보다_터무니없이_낮음"] += 1
+                    else:
+                        h, how = rh, "실측"
 
                 cx, cz = G.centroid(outer)
                 if math.hypot(cx, cz) > R:
@@ -461,6 +479,16 @@ def build(raw_path=None, out_dir=None, radius=None, fill=True, density=1.0):
           f"(첨탑 {sum(1 for b in buildings if b.get('mast'))}동)")
     print(f"[파싱] 건물 {len(buildings):,} / 도로 {len(roads):,} / 보행로 {len(footways):,} / "
           f"횡단보도 {len(crossings):,} / 면 {len(areas):,} / 점 {len(props):,} / 상호 {len(pois):,}")
+
+    # 높이를 어디서 얻었는지. '추정'이 적을수록 실제 도시에 가깝다.
+    hsrc = {k[3:]: v for k, v in stat.items() if k.startswith("높이_")}
+    if hsrc:
+        tot = sum(hsrc.values())
+        print("[높이] " + " / ".join(f"{k} {v:,}동({v * 100 // tot}%)"
+                                    for k, v in sorted(hsrc.items(), key=lambda x: -x[1])))
+    if stat.get("실측무시_태그보다_터무니없이_낮음"):
+        print(f"       ※ 실측이 OSM 조사값의 절반에도 못 미쳐 무시한 건물 "
+              f"{stat['실측무시_태그보다_터무니없이_낮음']:,}동")
 
     # ── 생성 건물로 도로변 빈틈 메우기 ──
     gen_count = 0
