@@ -1,0 +1,29 @@
+{
+ "origin": {
+  "lat": 37.5127871,
+  "lon": 126.924181
+ },
+ "radius_m": 1000,
+ "name": "대방역",
+ "counts": {
+  "total": 2254,
+  "node": 796,
+  "way": 1458,
+  "relation": 0,
+  "by_tag": {
+   "highway": 766,
+   "public_transport": 127,
+   "amenity": 395,
+   "shop": 310,
+   "leisure": 61,
+   "landuse": 69,
+   "railway": 88,
+   "building": 563,
+   "office": 4,
+   "man_made": 6,
+   "natural": 5
+  }
+ },
+ "fetched_at": "2026-09-09 17:17:14",
+ "license": "© OpenStreetMap contributors (ODbL)"
+}

@@ -1,0 +1,29 @@
+{
+ "origin": {
+  "lat": 35.1817359,
+  "lon": 129.1768241
+ },
+ "radius_m": 1000,
+ "name": "신해운대",
+ "counts": {
+  "total": 1124,
+  "node": 203,
+  "way": 920,
+  "relation": 1,
+  "by_tag": {
+   "amenity": 96,
+   "shop": 19,
+   "highway": 390,
+   "public_transport": 13,
+   "railway": 28,
+   "natural": 51,
+   "man_made": 6,
+   "landuse": 34,
+   "building": 488,
+   "leisure": 14,
+   "office": 1
+  }
+ },
+ "fetched_at": "2026-09-09 17:16:55",
+ "license": "© OpenStreetMap contributors (ODbL)"
+}

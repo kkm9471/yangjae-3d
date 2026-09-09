@@ -82,8 +82,13 @@ def load_keys():
     return keys
 
 
-def get(url, timeout=25):
-    req = urllib.request.Request(url, headers={"User-Agent": UA})
+def get(url, timeout=25, referer=None):
+    # juso.go.kr 처럼 '등록한 URL에서 온 요청인지'를 보는 곳이 있다.
+    # 파이썬에서 부르면 Referer 가 아예 없어서 거부될 수 있으므로 직접 붙여 준다.
+    headers = {"User-Agent": UA}
+    if referer:
+        headers["Referer"] = referer
+    req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout, context=ssl.create_default_context()) as r:
         return r.read().decode("utf-8", "replace")
 
@@ -294,8 +299,9 @@ def juso_lookup(key, addr):
         "confmKey": key, "currentPage": "1", "countPerPage": "1",
         "keyword": addr, "resultType": "json",
     })
-    d = json.loads(get(url))
+    d = json.loads(get(url, referer="http://localhost"))
     res = d.get("results", {})
+    err = (res or {}).get("common", {}).get("errorMessage")
     if (res.get("common", {}).get("errorCode") or "0") != "0":
         return None
     j = (res.get("juso") or [None])[0]
