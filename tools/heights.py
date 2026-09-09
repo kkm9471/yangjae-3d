@@ -53,6 +53,16 @@ HEIGHT_KEYS = ["heit", "height", "bldg_hgt", "hght", "높이"]
 
 
 # ─────────────────────────── 키 ───────────────────────────
+def normalize_datago(k):
+    """공공데이터포털은 인증키를 Encoding/Decoding 두 벌로 준다.
+    화면에 보이는 건 대개 Encoding(%2F, %2B, %3D 가 섞여 있다).
+    우리가 urlencode 로 다시 인코딩하므로, 들어온 게 Encoding 이면 먼저 풀어 준다.
+    → 사용자가 어느 쪽을 넣든 그냥 동작한다."""
+    if k and "%" in k:
+        return urllib.parse.unquote(k)
+    return k
+
+
 def load_keys():
     keys = {}
     if os.path.exists(KEYS_PATH):
@@ -61,10 +71,15 @@ def load_keys():
                 keys = json.load(f)
         except Exception as e:
             print(f"[주의] data/keys.json 을 읽지 못했습니다: {e}")
+    if keys.get("vworld_domain"):
+        DOMAIN_CANDIDATES.insert(0, keys["vworld_domain"])
     for k, env in (("vworld", "VWORLD_KEY"), ("datago", "DATAGO_KEY"), ("juso", "JUSO_KEY")):
         if not keys.get(k) and os.environ.get(env):
             keys[k] = os.environ[env]
-    return {k: v for k, v in keys.items() if v and not str(v).startswith("여기에")}
+    keys = {k: v for k, v in keys.items() if v and not str(v).startswith("여기에")}
+    if keys.get("datago"):
+        keys["datago"] = normalize_datago(keys["datago"])
+    return keys
 
 
 def get(url, timeout=25):
@@ -74,15 +89,36 @@ def get(url, timeout=25):
 
 
 # ─────────────────────────── 브이월드 ───────────────────────────
-def vworld_fetch(key, layer, bbox, page=1, size=1000):
+# 브이월드는 키에 등록한 '서비스 URL' 과 요청의 domain 이 맞아야 한다.
+# 사용자가 무엇으로 등록했는지 모를 수 있으므로 흔한 값들을 차례로 시도하고,
+# 한 번 통한 값을 기억해서 그 뒤로는 그것만 쓴다.
+DOMAIN_CANDIDATES = ["http://localhost:8765", "http://localhost", "localhost",
+                     "http://127.0.0.1:8765", ""]
+_good_domain = [None]
+
+
+def vworld_fetch(key, layer, bbox, page=1, size=1000, domain=None):
     """bbox = (minLon, minLat, maxLon, maxLat)"""
-    url = "https://api.vworld.kr/req/data?" + urllib.parse.urlencode({
-        "service": "data", "request": "GetFeature", "version": "2.0",
-        "key": key, "data": layer, "format": "json", "size": str(size),
-        "page": str(page), "crs": "EPSG:4326", "domain": "http://localhost",
-        "geomFilter": "BOX({},{},{},{})".format(*bbox),
-    })
-    return json.loads(get(url))
+    cands = [domain] if domain else ([_good_domain[0]] if _good_domain[0] is not None
+                                     else DOMAIN_CANDIDATES)
+    last = None
+    for dm in cands:
+        params = {
+            "service": "data", "request": "GetFeature", "version": "2.0",
+            "key": key, "data": layer, "format": "json", "size": str(size),
+            "page": str(page), "crs": "EPSG:4326",
+            "geomFilter": "BOX({},{},{},{})".format(*bbox),
+        }
+        if dm:
+            params["domain"] = dm
+        doc = json.loads(get("https://api.vworld.kr/req/data?" + urllib.parse.urlencode(params)))
+        st, _ = vworld_status(doc)
+        last = doc
+        if st == "OK" or "NOT_APPLICABLE_KEY" not in json.dumps(doc):
+            if st == "OK":
+                _good_domain[0] = dm
+            return doc
+    return last
 
 
 def vworld_features(doc):
@@ -129,7 +165,8 @@ def probe(keys):
                 props = fs[0].get("properties", {})
                 fk = pick_key(props, FLOOR_KEYS)
                 hk = pick_key(props, HEIGHT_KEYS)
-                print(f"  [브이월드] ✅ 레이어 '{layer}' 사용 가능 — {len(fs)}건")
+                print(f"  [브이월드] ✅ 레이어 '{layer}' 사용 가능 — {len(fs)}건 "
+                      f"(domain='{_good_domain[0]}')")
                 print(f"             층수 속성: {fk or '못 찾음'} / 높이 속성: {hk or '없음'}")
                 print(f"             속성 목록: {sorted(props.keys())[:14]}")
                 found = True
