@@ -2,13 +2,20 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<!-- viewport-fit=cover: 아이폰 노치 아래까지 화면을 쓴다 (여백은 env(safe-area-inset-*)로 뺀다) -->
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>양재역 3D · 하루</title>
 <link rel="icon" href="data:,">   <!-- 아이콘 파일을 쓰지 않는다(이미지 0개 유지) -->
 <style>
   html,body{margin:0;height:100%;background:#05070c;color:#dfe6f2;
-    font-family:"Malgun Gothic","맑은 고딕",system-ui,sans-serif;overflow:hidden}
-  canvas{display:block}
+    font-family:"Malgun Gothic","맑은 고딕",system-ui,sans-serif;overflow:hidden;
+    /* 폰에서 화면을 쓸어도 페이지가 딸려 내려가거나 새로고침되지 않게 */
+    overscroll-behavior:none;-webkit-text-size-adjust:100%}
+  /* touch-action:none 이 없으면 조이스틱을 미는 순간 브라우저가 화면을 스크롤·확대한다 */
+  canvas{display:block;touch-action:none;-webkit-user-select:none;user-select:none;
+    -webkit-tap-highlight-color:transparent}
   #hud{position:fixed;left:12px;top:12px;z-index:10;font-size:12px;line-height:1.55;
     background:rgba(6,10,18,.72);border:1px solid #1e2a3d;border-radius:8px;padding:10px 12px;
     backdrop-filter:blur(6px);min-width:238px;max-height:calc(100vh - 24px);overflow:auto}
@@ -65,6 +72,29 @@
     background:rgba(8,13,22,.86);border:1px solid #2b3a52;border-radius:10px;padding:16px 26px;
     text-align:center;font-size:15px;color:#dfe9f7;pointer-events:none;line-height:1.7}
   #lockhint small{color:#8794a8;font-size:12px}
+
+  /* ── 손가락으로 쓰는 기기 (body.touch 는 main.js 가 붙인다) ── */
+  /* 오른쪽 위젯들이 터치를 먹으면 그 위에서는 화면을 못 돌린다 → 손가락이 통과하게 한다 */
+  body.touch #help{display:none}
+  body.touch #attr, body.touch #nav{pointer-events:none}
+  #touchhelp{position:fixed;left:50%;transform:translateX(-50%);z-index:10;display:none;
+    bottom:calc(9px + env(safe-area-inset-bottom));white-space:nowrap;font-size:11.5px;
+    color:#93a3ba;background:rgba(6,10,18,.72);border:1px solid #1e2a3d;
+    border-radius:8px;padding:6px 12px}
+  #touchhelp b{color:#cfe0f5;font-weight:600}
+  body.touch #touchhelp{display:block}
+
+  /* ── 좁거나 낮은 화면(폰) ── env() 는 아이폰 노치·홈바를 피하는 여백 ──
+     max-height 도 같이 보는 이유: 폰을 가로로 들면 폭은 844가 되지만 높이가 390이다 */
+  @media (max-width:560px), (max-height:520px){
+    #hud{left:max(8px,env(safe-area-inset-left));top:max(8px,env(safe-area-inset-top));
+      min-width:200px;font-size:11.5px;max-height:calc(100vh - 96px)}
+    #attr{right:max(8px,env(safe-area-inset-right));top:max(8px,env(safe-area-inset-top))}
+    #nav{right:max(8px,env(safe-area-inset-right));
+      bottom:calc(50px + env(safe-area-inset-bottom))}
+    #minimap{width:92px;height:92px}
+    #navtxt{font-size:11px;padding:3px 7px}
+  }
 </style>
 </head>
 <body>
@@ -140,6 +170,10 @@
   <b>자동 산책</b> 버튼을 누르면 보도를 따라 저절로 걷습니다<br>
   <b>비행</b> W A S D + <b>Q/E</b> 상하 · 마우스 시점<br>
   <b>H</b> 왼쪽 패널 접기/펼치기
+</div>
+
+<div id="touchhelp">
+  <b>왼쪽</b> 밀어서 이동(끝까지 밀면 달리기) · <b>오른쪽</b> 문질러서 시점
 </div>
 
 <script type="importmap">

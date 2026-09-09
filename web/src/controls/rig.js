@@ -94,9 +94,17 @@ export class CameraRig {
 
   _syncHint() {
     const el = document.getElementById('lockhint');
-    if (!el) return;
-    const need = (this.mode !== 'orbit' && !this.locked && !this.touchOnly);
-    el.style.display = need ? 'block' : 'none';
+    if (el) {
+      const need = (this.mode !== 'orbit' && !this.locked && !this.touchOnly);
+      el.style.display = need ? 'block' : 'none';
+    }
+    // 터치 안내는 모드마다 조작법이 달라서 같이 바꾼다
+    const th = document.getElementById('touchhelp');
+    if (th) {
+      th.innerHTML = this.mode === 'orbit'
+        ? '<b>한 손가락</b> 돌리기 · <b>두 손가락</b> 확대·이동'
+        : '<b>왼쪽</b> 밀어서 이동(끝까지 밀면 달리기) · <b>오른쪽</b> 문질러서 시점';
+    }
   }
   _syncAutoBtn() {
     const b = document.getElementById('m-auto');

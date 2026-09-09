@@ -124,6 +124,14 @@ async function main() {
 
   // ── 조작 ──
   const rig = new CameraRig(camera, renderer.domElement, chunks);
+  // 아이폰 사파리에는 Pointer Lock 이 없다. 터치 기기에서는 조이스틱으로 걷는다.
+  rig.touchOnly = isTouchDevice();
+  rig.touch = new TouchControls(rig, renderer.domElement);
+  if (rig.touchOnly) document.body.classList.add('touch');
+  // 폰에서는 패널을 접어 둔다(제목을 누르면 펴진다).
+  // ★ 폭만 보고 판단하면 안 된다. 폰을 가로로 들면 폭이 844가 되어 안 접히는데,
+  //   그 패널이 왼쪽 절반을 덮어서 조이스틱을 놓을 자리가 사라진다(실제로 그랬다).
+  if (rig.touchOnly || innerWidth < 560) document.getElementById('hud').classList.add('mini');
   rig.setMode('orbit');
   document.getElementById('m-orbit').onclick = () => rig.setMode('orbit');
   // 걷기·비행 버튼은 누르는 즉시 1인칭 조작으로 들어간다
@@ -291,6 +299,10 @@ async function main() {
   const vd = el('vd'); vd.oninput = () => {
     CFG.viewRadius = Number(vd.value); el('vd-v').textContent = vd.value + ' m';
   };
+  // 폰이면 기기 등급이 반경을 이미 낮춰 뒀다. 슬라이더가 그걸 따라가지 않으면
+  // 화면에는 300m 라고 적혀 있는데 실제로는 170m 만 보이는 상태가 된다.
+  vd.value = String(CFG.viewRadius);
+  el('vd-v').textContent = CFG.viewRadius + ' m';
   const lit = el('lit'); lit.oninput = () => {
     litManual = true;
     U.uLitRatio.value = Number(lit.value) / 100; el('lit-v').textContent = lit.value + '%';
@@ -310,11 +322,29 @@ async function main() {
     renderer.getDrawingBufferSize(s);
     U.uPixelScale.value = 2 * Math.tan(camera.fov * 0.5 * Math.PI / 180) / Math.max(1, s.y);
   }
-  updatePixelScale();
+
+  // 세로로 든 폰에서는 수직 화각을 그대로 두면 좌우가 답답하게 좁아진다.
+  // (three.js 의 fov 는 수직 기준이라, 화면이 좁아질수록 가로 화각이 같이 줄어든다)
+  function fitFov() {
+    const aspect = innerWidth / Math.max(1, innerHeight);
+    if (aspect >= 1) return 58;
+    const wantH = 68 * Math.PI / 180;                       // 가로로 최소 이만큼은 보이게
+    const v = 2 * Math.atan(Math.tan(wantH / 2) / aspect) * 180 / Math.PI;
+    // 너무 키우면 발밑 바닥만 잔뜩 보이고 가장자리가 늘어난다.
+    // 세로로 든 폰은 어차피 좌우가 좁으니, 가로로 돌려 보는 게 낫다.
+    return Math.min(72, Math.max(58, v));
+  }
+  const applyFov = () => {
+    camera.fov = fitFov();
+    rig.baseFov = camera.fov;      // rig 가 달릴 때 화각을 흔들 기준점
+    camera.updateProjectionMatrix();
+  };
+  applyFov();
+  updatePixelScale();      // 화각이 정해진 뒤에 재야 한 화소의 크기가 맞다
 
   addEventListener('resize', () => {
     camera.aspect = innerWidth / innerHeight;
-    camera.updateProjectionMatrix();
+    applyFov();
     renderer.setSize(innerWidth, innerHeight);
     composer.setSize(innerWidth, innerHeight);
     updatePixelScale();
@@ -446,7 +476,14 @@ async function main() {
     mode: rig.mode, auto: rig.auto,
     x: +camera.position.x.toFixed(1), y: +camera.position.y.toFixed(2), z: +camera.position.z.toFixed(1),
     ground: +rig.groundY.toFixed(3), walked: +rig.walked.toFixed(1),
+    yaw: +rig.yaw.toFixed(4), pitch: +rig.pitch.toFixed(4),
     road: chunks.roadNameAt(camera.position.x, camera.position.z),
+  });
+
+  // 기기 판정이 맞았는지 밖에서 확인하려고 열어 둔다(tests/touch.mjs)
+  window.__diag = () => ({
+    tier: CFG.tier, viewRadius: CFG.viewRadius, fov: +camera.fov.toFixed(1),
+    pixelRatio: renderer.getPixelRatio(), touchOnly: !!rig.touchOnly,
   });
 
   window.__stats = () => ({
