@@ -5,6 +5,7 @@ export const CFG = {
   // ── 범위 ──
   viewRadius: 300,          // 청크를 로드할 반경(m). HUD 슬라이더로 조절.
   chunkKeepMargin: 120,     // 반경 밖이라도 이만큼은 유지(경계에서 깜빡임 방지)
+  chunkSize: 100,           // ★ 시작할 때 index.json 값으로 덮어씀 (여기 값은 기본값일 뿐)
 
   // ── 건물 ──
   floorH: 3.35,             // 기준 층고(m) — build_scene.py 와 같은 값이어야 한다

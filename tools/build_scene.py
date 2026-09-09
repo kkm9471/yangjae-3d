@@ -862,9 +862,15 @@ def write_chunks(buildings, roads, footways, crossings, areas, props, R, spots=N
         if n == 0:
             continue
         name = f"{key[0]}_{key[1]}.json"
-        with open(os.path.join(CHUNK_DIR, name), "w", encoding="utf-8") as f:
+        # 쓰는 도중 멈추면 잘린 JSON이 남고, 브라우저는 그 블록을 통째로 못 읽는다.
+        # 임시파일에 다 쓴 뒤 통째로 바꿔치기해서 '반쯤 쓰인 파일'이 생기지 않게 한다.
+        # allow_nan=False: 계산 실수로 NaN이 섞이면 조용히 저장되지 않고 여기서 터진다.
+        dst = os.path.join(CHUNK_DIR, name)
+        tmp = dst + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump({"cx": key[0], "cz": key[1], **c}, f, ensure_ascii=False,
-                      separators=(",", ":"))
+                      separators=(",", ":"), allow_nan=False)
+        os.replace(tmp, dst)
         written += 1
         index["chunks"].append({
             "cx": key[0], "cz": key[1],
@@ -879,8 +885,10 @@ def write_chunks(buildings, roads, footways, crossings, areas, props, R, spots=N
     tot["pois"] = sum(len(b.get("pois", [])) for b in buildings)
     index["totals"] = dict(tot)
 
-    with open(os.path.join(OUT_DIR, "index.json"), "w", encoding="utf-8") as f:
-        json.dump(index, f, ensure_ascii=False, indent=1)
+    itmp = os.path.join(OUT_DIR, "index.json.tmp")
+    with open(itmp, "w", encoding="utf-8") as f:
+        json.dump(index, f, ensure_ascii=False, indent=1, allow_nan=False)
+    os.replace(itmp, os.path.join(OUT_DIR, "index.json"))
 
     size = sum(os.path.getsize(os.path.join(CHUNK_DIR, f)) for f in os.listdir(CHUNK_DIR))
     print(f"[저장] 청크 {written}개 / {size/1048576:.1f} MB → {CHUNK_DIR}")

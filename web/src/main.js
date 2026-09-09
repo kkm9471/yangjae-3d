@@ -43,7 +43,10 @@ const Q = new URLSearchParams(location.search);
 
 async function main() {
   bootMsg.textContent = '지도 데이터 목록 읽는 중…';
-  const index = await (await fetch('./data/index.json')).json();
+  const index = await (await fetch('./data/index.json', { cache: 'no-store' })).json();
+  // 격자 크기는 데이터가 정한다. JS에 손으로 박아 두면 config.py 를 바꾸는 순간
+  // 가로등·사람·차가 조용히 사라진다.
+  if (index.chunkSize) CFG.chunkSize = index.chunkSize;
   bootBar.style.width = '15%';
 
   // ── 렌더러 ──
@@ -58,6 +61,13 @@ async function main() {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.info.autoReset = false;   // 후처리 패스까지 합쳐서 세려면 수동 리셋
   document.body.appendChild(renderer.domElement);
+
+  // 그래픽카드가 잠깐 끊기면(절전·드라이버 리셋) 화면이 그대로 굳는다.
+  // 아무 말도 없으면 "느린가?" 하고 계속 기다리게 되므로 알려 준다.
+  renderer.domElement.addEventListener('webglcontextlost', (ev) => {
+    ev.preventDefault();
+    fail('그래픽이 잠시 끊겼습니다', new Error('브라우저를 새로고침(F5)하면 됩니다.'));
+  });
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, 0.35, 6000);
@@ -114,6 +124,7 @@ async function main() {
     }
     rig.setMode(sp.mode || 'walk');
     camera.position.set(sp.cam[0], sp.cam[1], sp.cam[2]);
+    chunks.resetFocus();          // 순간이동은 부드럽게 따라가지 말고 즉시
     const t = new THREE.Vector3(sp.look[0], sp.look[1], sp.look[2]);
     camera.lookAt(t);
     rig.orbit.target.copy(t);
@@ -278,7 +289,8 @@ async function main() {
       el('ll').textContent = `${(o.lat - p.z / mPerDegLat).toFixed(5)}, ${(o.lon + p.x / mPerDegLon).toFixed(5)}`;
       el('nb').textContent = chunks.stats.buildings.toLocaleString();
       el('ns').textContent = chunks.stats.signs.toLocaleString();
-      el('nc').textContent = `${chunks.stats.built} / ${chunks.available.size}`;
+      el('nc').textContent = `${chunks.stats.built} / ${chunks.available.size}`
+        + (chunks.stats.failed ? `  ⚠못읽음 ${chunks.stats.failed}` : '');
       el('dc').textContent = renderer.info.render.calls;
       el('npc').textContent = `${chunks.stats.people.toLocaleString()} · ${chunks.stats.cars.toLocaleString()}`;
     }
@@ -289,6 +301,8 @@ async function main() {
 
   window.__stats = () => ({
     errors: window.__errors,
+    failedChunks: chunks.stats.failed,
+    signOverflow: atlas().overflow,
     fps: Math.round(window.__fps || 0),
     calls: renderer.info.render.calls,
     tris: renderer.info.render.triangles,

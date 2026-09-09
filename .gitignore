@@ -24,9 +24,9 @@ secrets.json
 # ── 의존성 / 빌드 산출물 ──
 node_modules/
 bower_components/
-vendor/
+/vendor/
 dist/
-build/
+/build/
 out/
 target/
 bin/
@@ -78,3 +78,15 @@ desktop.ini
 
 # 참고: PDF/DOCX/XLSX/HTML/MP4/GPKG 등 산출물·데이터는 일부러 제외하지 않습니다.
 #       90MB를 넘는 파일만 autosync가 자동으로 아래에 추가합니다.
+
+# ── 이 프로젝트의 예외 (반드시 백업돼야 하는 것) ──
+# web/src/build/  = 건물·도로·간판·사람·차를 그리는 핵심 소스 8개
+# web/vendor/     = three.js (인터넷 없이 돌게 같이 넣어 둔 것)
+!web/src/build/
+!web/src/build/**
+!web/vendor/
+!web/vendor/**
+
+# ── 실행 중 생기는 것 ──
+data/serve.log
+tests/shots/

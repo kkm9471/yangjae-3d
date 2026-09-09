@@ -6,7 +6,7 @@ set PORT=8765
 
 echo.
 echo   ============================================
-echo     양재역 야경 3D
+echo     양재역 3D  ·  하루 24시간
 echo   ============================================
 echo.
 
@@ -17,7 +17,7 @@ echo   브라우저를 엽니다.
 echo   끄고 싶으면 이 검은 창을 닫으세요.
 echo.
 start "" /min cmd /c "timeout /t 2 >nul && start http://127.0.0.1:%PORT%/index.html"
-python -m http.server %PORT% --bind 127.0.0.1 --directory web
+python tools/serve.py --stay --verbose
 echo.
 echo   서버가 멈췄습니다. 포트 %PORT% 를 다른 프로그램이 쓰고 있을 수 있습니다.
 pause

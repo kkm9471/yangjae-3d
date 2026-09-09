@@ -21,6 +21,8 @@ import urllib.error
 import urllib.request
 
 PORT = int(os.environ.get("YANGJAE_PORT", "8765"))
+STAY = "--stay" in sys.argv          # 계속 켜 둔다(즐겨찾기·자동시작용)
+VERBOSE = "--verbose" in sys.argv    # 검은 창에서 진행 상황을 보여 준다
 IDLE_LIMIT = 180.0        # 신호가 이만큼 끊기면 종료(초)
 FIRST_WAIT = 90.0         # 브라우저가 뜰 때까지 기다려 주는 시간(초)
 
@@ -59,8 +61,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
         super().end_headers()
 
-    def log_message(self, *args):
-        pass                       # 창이 없으므로 콘솔 출력은 의미가 없다
+    def log_message(self, fmt, *args):
+        if VERBOSE:
+            print("   " + (fmt % args))
 
 
 class Server(socketserver.ThreadingTCPServer):
@@ -69,6 +72,8 @@ class Server(socketserver.ThreadingTCPServer):
 
 
 def watchdog(httpd):
+    if STAY:
+        return                     # 자동 종료 안 함
     start = time.time()
     while True:
         time.sleep(3)
@@ -105,7 +110,11 @@ def main():
         log(f"포트 {PORT} 를 열 수 없음: {e}")
         return 1
 
-    log(f"시작 (포트 {PORT})")
+    log(f"시작 (포트 {PORT}){' [계속켜기]' if STAY else ''}")
+    if VERBOSE:
+        print(f"   서버 시작: http://127.0.0.1:{PORT}/index.html")
+        print("   끄려면 이 창을 닫으세요.")
+        print("")
     threading.Thread(target=watchdog, args=(httpd,), daemon=True).start()
     try:
         httpd.serve_forever(poll_interval=0.5)

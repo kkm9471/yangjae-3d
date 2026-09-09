@@ -103,11 +103,14 @@ export class CameraRig {
 
     if (this.mode === 'walk') {
       const p = this.camera.position;
+      // 이미 건물 안에 들어와 있으면 모든 방향이 막혀 영영 못 나온다.
+      // 그럴 때는 충돌 검사를 건너뛰어 빠져나올 수 있게 한다.
+      const stuck = this.chunks.insideBuilding(p.x, p.z);
       // 축별로 나눠 밀어서 벽을 따라 미끄러지게 한다
       const nx = p.x + move.x;
-      if (!this.chunks.insideBuilding(nx, p.z)) p.x = nx;
+      if (stuck || !this.chunks.insideBuilding(nx, p.z)) p.x = nx;
       const nz = p.z + move.z;
-      if (!this.chunks.insideBuilding(p.x, nz)) p.z = nz;
+      if (stuck || !this.chunks.insideBuilding(p.x, nz)) p.z = nz;
       p.y = CFG.eyeHeight;
     } else {
       this.camera.position.add(move);

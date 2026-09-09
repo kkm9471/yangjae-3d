@@ -34,7 +34,10 @@ export class ChunkManager {
     this.maxInflight = 8;
     this.buildBudgetMs = 9;             // 한 프레임에 이만큼만 만든다(끊김 방지)
     this.nearDist = NEAR_DIST;
-    this.stats = { loaded: 0, built: 0, tris: 0, buildings: 0, signs: 0, people: 0, cars: 0 };
+    this.stats = { loaded: 0, built: 0, tris: 0, buildings: 0, signs: 0, people: 0, cars: 0, failed: 0 };
+    // 지도를 다시 만들면 주소가 바뀌어 브라우저가 옛 청크를 재사용하지 못한다
+    this.ver = '?v=' + encodeURIComponent(String(index.builtAt || '0')).replace(/%20/g, '_');
+    this._focus = null;
     // 걷기 충돌용: 건물 외곽선을 격자에 담아둔다
     this.collGrid = new Map();
     this.collCell = 25;
@@ -45,7 +48,11 @@ export class ChunkManager {
   _rec(cx, cz) {
     const k = this.key(cx, cz);
     let r = this.chunks.get(k);
-    if (!r) { r = { k, cx, cz, state: ST_NONE, data: null, meshes: [], nearMeshes: [], near: false }; this.chunks.set(k, r); }
+    if (!r) {
+      r = { k, cx, cz, state: ST_NONE, data: null, meshes: [], nearMeshes: [],
+            near: false, gen: 0, fails: 0, dead: false, collAdded: false };
+      this.chunks.set(k, r);
+    }
     return r;
   }
 
@@ -53,16 +60,33 @@ export class ChunkManager {
       높은 데서 내려다볼 때 카메라 발밑이 아니라 화면 중앙을 채워야 한다. */
   focusOf(camera) {
     const p = camera.position;
-    if (p.y > 20) {
-      const d = new THREE.Vector3();
-      camera.getWorldDirection(d);
-      if (d.y < -0.12) {
-        const t = Math.min(-p.y / d.y, 1500);
-        return new THREE.Vector3(p.x + d.x * t, 0, p.z + d.z * t);
-      }
+    const d = new THREE.Vector3();
+    camera.getWorldDirection(d);
+
+    // ★ 예전엔 시선각 -0.12 를 경계로 기준점이 '카메라 발밑'과 '1.5km 앞 땅'
+    //   사이를 툭 튀어 다녔다. 마우스를 조금 내리는 것만으로 로드된 청크가
+    //   한 프레임에 전부 해제돼 도시가 통째로 사라졌다(오류는 한 건도 안 남).
+    //   → 각도에 따라 부드럽게 섞고, 거리도 보이는 범위에 맞춰 제한한다.
+    let w = 0;
+    if (p.y > 20 && d.y < -0.05) {
+      const t0 = Math.min(1, ((-d.y) - 0.05) / 0.20);
+      w = t0 * t0 * (3 - 2 * t0);
     }
-    return new THREE.Vector3(p.x, 0, p.z);
+    const maxT = Math.max(150, CFG.viewRadius * 1.1);
+    const t = d.y < -0.02 ? Math.min(-p.y / d.y, maxT) : 0;
+    const tx = p.x + d.x * t * w;
+    const tz = p.z + d.z * t * w;
+
+    if (!this._focus) this._focus = new THREE.Vector3(tx, 0, tz);
+    else {
+      this._focus.x += (tx - this._focus.x) * 0.15;
+      this._focus.z += (tz - this._focus.z) * 0.15;
+    }
+    return this._focus;
   }
+
+  /** 명소로 순간이동할 때는 부드럽게 따라가지 말고 즉시 옮긴다 */
+  resetFocus() { this._focus = null; }
 
   neededKeys(camPos, radius) {
     const cs = this.cs;
@@ -101,7 +125,7 @@ export class ChunkManager {
     for (const n of need) {
       if (this.inflight >= this.maxInflight) break;
       const r = this._rec(n.cx, n.cz);
-      if (r.state !== ST_NONE) continue;
+      if (r.state !== ST_NONE || r.dead) continue;
       this._load(r);
     }
 
@@ -128,17 +152,31 @@ export class ChunkManager {
 
   async _load(r) {
     r.state = ST_LOADING;
+    const gen = ++r.gen;               // 이 요청의 세대번호
     this.inflight++;
     try {
-      const res = await fetch(`./data/chunks/${r.k}.json`, { cache: 'force-cache' });
+      const res = await fetch(`./data/chunks/${r.k}.json${this.ver}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      r.data = await res.json();
+      const data = await res.json();
+      // 기다리는 사이에 이 청크가 버려졌다면(카메라가 멀어짐) 늦게 온 응답은 버린다.
+      // 안 그러면 같은 청크가 두 번 지어져 '보이지 않는 벽'이 남는다.
+      if (gen !== r.gen) return;
+      r.data = data;
       r.state = ST_LOADED;
+      r.fails = 0;
       this.stats.loaded++;
     } catch (e) {
-      console.warn('청크 로드 실패', r.k, e);
+      if (gen !== r.gen) return;
       r.state = ST_NONE;
-      this.available.delete(r.k);       // 없는 청크는 다시 시도하지 않는다
+      r.fails++;
+      // 한 번 실패했다고 목록에서 지우면 그 구역이 영구히 비고,
+      // 게다가 '필요한 청크'에서도 빠져서 모든 계기판이 정상이라고 답한다.
+      // → 몇 번 더 시도하고, 그래도 안 되면 실패로 세어 화면에 드러낸다.
+      if (r.fails >= 4) {
+        r.dead = true;
+        this.stats.failed++;
+        console.warn('청크를 4번 시도했지만 읽지 못했습니다:', r.k, e);
+      }
     } finally {
       this.inflight--;
     }
@@ -147,7 +185,7 @@ export class ChunkManager {
   _make(r, b, into) {
     let mesh = null;
     try { mesh = b.fn(r.data, this.uniforms, r); }
-    catch (e) { console.error(`청크 ${r.k} / ${b.key} 생성 실패`, e); }
+    catch (e) { console.error(`청크 ${r.k} / ${b.key} 생성 실패: ${e && e.message}`, e && e.stack); }
     if (!mesh) return;
     mesh.userData.chunk = r.k;
     this.groups[b.group].add(mesh);
@@ -165,7 +203,10 @@ export class ChunkManager {
       this._make(r, b, r.meshes);
     }
     if (near) this._buildNear(r);
-    for (const bd of (r.data.buildings || [])) this._addColl(bd);
+    if (!r.collAdded) {
+      for (const bd of (r.data.buildings || [])) this._addColl(bd);
+      r.collAdded = true;
+    }
     this.stats.buildings += (r.data.buildings || []).length;
     this.stats.built++;
   }
@@ -196,18 +237,34 @@ export class ChunkManager {
     // ★ 가로등·나무 묶음은 Group 이라 geometry 가 없다.
     //   m.geometry.dispose() 를 그냥 부르면 카메라가 움직여 청크를 버리는 순간 터진다.
     //   (정지 화면 스크린샷으로는 절대 안 잡히는 종류의 버그였다)
-    m.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+    m.traverse((o) => {
+      const g = o.geometry;
+      if (!g) return;
+      // 사람·차 모형의 원본은 모든 청크가 함께 쓴다. 청크 하나를 버릴 때
+      // 그걸 GPU에서 지우면 다른 청크의 사람·차까지 사라진다 → 떼어내고 버린다.
+      if (o.userData.sharedBase) {
+        for (const k of Object.keys(g.attributes)) {
+          if (!g.attributes[k].isInstancedBufferAttribute) g.deleteAttribute(k);
+        }
+        g.index = null;
+      }
+      g.dispose();
+    });
   }
 
   _unload(r) {
+    r.gen++;                       // 진행 중인 로드 요청을 무효화한다
     for (const m of r.meshes) this._disposeMesh(m);
     for (const m of r.nearMeshes) this._disposeMesh(m);
     r.nearMeshes = [];
     r.near = false;
+    if (r.collAdded) {
+      for (const bd of ((r.data && r.data.buildings) || [])) this._delColl(bd);
+      r.collAdded = false;
+    }
     if (r.state === ST_BUILT) {
       this.stats.built--;
-      this.stats.buildings -= (r.data.buildings || []).length;
-      for (const bd of (r.data.buildings || [])) this._delColl(bd);
+      this.stats.buildings -= ((r.data && r.data.buildings) || []).length;
     }
     if (r.state >= ST_LOADED) this.stats.loaded--;
     r.meshes = [];
@@ -257,7 +314,9 @@ export class ChunkManager {
     if (this.inflight > 0) return false;
     for (const n of this.neededKeys(camPos, radius)) {
       const r = this.chunks.get(n.k);
-      if (!r || r.state !== ST_BUILT) return false;
+      if (!r) return false;
+      if (r.dead) continue;              // 못 읽은 청크는 stats.failed 로 드러난다
+      if (r.state !== ST_BUILT) return false;
     }
     return true;
   }
