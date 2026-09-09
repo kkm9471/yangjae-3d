@@ -254,12 +254,40 @@ def lookup(grid, cell, x, z):
     return None
 
 
+_DJ_CACHE = {}
+_DJ_CACHE_PATH = None
+
+
+def load_dj_cache(slug):
+    """대장 응답 캐시. 같은 필지를 다시 묻지 않는다(일일 한도 10,000 보호)."""
+    global _DJ_CACHE, _DJ_CACHE_PATH
+    os.makedirs(HEIGHTS_DIR, exist_ok=True)
+    _DJ_CACHE_PATH = os.path.join(HEIGHTS_DIR, f"_daejang_{slug}.json")
+    try:
+        with open(_DJ_CACHE_PATH, encoding="utf-8") as f:
+            _DJ_CACHE = json.load(f)
+    except Exception:
+        _DJ_CACHE = {}
+    return len(_DJ_CACHE)
+
+
+def save_dj_cache():
+    if not _DJ_CACHE_PATH:
+        return
+    tmp = _DJ_CACHE_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(_DJ_CACHE, f, ensure_ascii=False)
+    os.replace(tmp, _DJ_CACHE_PATH)
+
+
 def daejang_by_pnu(key, pnu):
-    """PNU(19자리) → [높이, 출처]. 없으면 None."""
+    """PNU(19자리) → {'h': 최고높이, 'fl': 최고층수, 'n': 등재 동수}. 없으면 None."""
+    if pnu in _DJ_CACHE:
+        return _DJ_CACHE[pnu]
     q = {"serviceKey": key, "sigunguCd": pnu[0:5], "bjdongCd": pnu[5:10],
          "platGbCd": "0" if pnu[10] == "1" else "1",
          "bun": pnu[11:15], "ji": pnu[15:19],
-         "numOfRows": "10", "pageNo": "1", "_type": "json"}
+         "numOfRows": "30", "pageNo": "1", "_type": "json"}
     url = ("https://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo?"
            + urllib.parse.urlencode(q))
     j = None
@@ -269,12 +297,11 @@ def daejang_by_pnu(key, pnu):
             break
         except Exception:
             if attempt == 1:
-                return None
+                return None          # 통신 실패는 캐시하지 않는다(다음에 다시 시도)
             time.sleep(0.6)
-    if j is None:
-        return None
     items = (((j.get("response") or {}).get("body") or {}).get("items") or {}).get("item")
     if not items:
+        _DJ_CACHE[pnu] = None
         return None
     if isinstance(items, dict):
         items = [items]
@@ -292,12 +319,9 @@ def daejang_by_pnu(key, pnu):
             best_h = h
         if fl > best_fl:
             best_fl = fl
-    if best_h > 2:
-        return [round(best_h, 1), "건축물대장"]
-    if best_fl >= 1:
-        # 높이가 안 적힌 대장이 많다. 그럴 땐 층수로 환산한다(대장 층수는 실측이다).
-        return [round(GROUND_FLOOR_H + (best_fl - 1) * FLOOR_H, 1), "건축물대장(층수)"]
-    return None
+    rec = {"h": best_h, "fl": best_fl, "n": len(items)}
+    _DJ_CACHE[pnu] = rec
+    return rec
 
 
 def enrich(keys, place, buildings, say=print, limit=1500):
@@ -308,6 +332,9 @@ def enrich(keys, place, buildings, say=print, limit=1500):
     """
     lat, lon, radius = place["lat"], place["lon"], place["radius"]
     CF.set_origin(lat, lon)
+    n_cached = load_dj_cache(place["slug"])
+    if n_cached:
+        say("  이미 받아 둔 건축물대장 응답 %s건을 재사용합니다." % format(n_cached, ","))
     out = {}
     key = keys.get("vworld")
     if not key:
@@ -337,13 +364,13 @@ def enrich(keys, place, buildings, say=print, limit=1500):
             continue
         items.append((fl, [CF.to_local(c[1], c[0]) for c in r]))
     bgrid, bcell = build_grid(items)
-    n1 = 0
+    vfloors = {}                    # 건물별 브이월드 층수(이게 '어느 건물인지'는 가장 정확하다)
     for b, c in centers:
         fl = lookup(bgrid, bcell, c[0], c[1])
         if fl:
+            vfloors[b["id"]] = fl
             out[b["id"]] = [round(GROUND_FLOOR_H + (fl - 1) * FLOOR_H, 1), "브이월드"]
-            n1 += 1
-    say("    → %s동에 층수를 맞췄습니다." % format(n1, ","))
+    say("    → %s동에 층수를 맞췄습니다." % format(len(vfloors), ","))
 
     # ── 2) 지적도로 PNU 얻기 ──
     if not keys.get("datago"):
@@ -375,15 +402,38 @@ def enrich(keys, place, buildings, say=print, limit=1500):
     if len(want) > limit:
         say("    ⚠ 일일 한도 때문에 %s곳만 조회합니다(--limit 로 조절)." % format(limit, ","))
     for i, (pnu, ids) in enumerate(todo):
-        v = daejang_by_pnu(keys["datago"], pnu)
+        d = daejang_by_pnu(keys["datago"], pnu)
         time.sleep(0.05)
-        if not v:
+        if not d:
             continue
+        # ★ 한 필지에 여러 동이 있으면(아파트 단지의 상가·부속동 등)
+        #   그 필지에서 제일 높은 값을 전부에게 주면 안 된다.
+        #   실제로 '어린이집 7.8m → 107.5m' 같은 사고가 났다.
+        #   건물 하나하나가 몇 층인지는 브이월드가 알고 있으므로,
+        #   대장에서는 '이 동네의 실제 층고'만 빌려 쓴다.
+        fh = FLOOR_H
+        if d["h"] > 2 and d["fl"] >= 2:
+            cand = d["h"] / d["fl"]
+            if 2.4 <= cand <= 6.0:
+                fh = cand
+        single = (len(ids) == 1 and d["n"] <= 1)
         for bid in ids:
-            out[bid] = v
+            vf = vfloors.get(bid)
+            if single and d["h"] > 2:
+                out[bid] = [d["h"], "건축물대장"]           # 한 필지 한 동 → 대장 높이가 곧 그 건물
+            elif vf:
+                out[bid] = [round(GROUND_FLOOR_H + (vf - 1) * fh, 1), "브이월드층수+대장층고"]
+            elif d["h"] > 2 and len(ids) == 1:
+                out[bid] = [d["h"], "건축물대장"]
+            elif d["fl"] >= 1 and len(ids) == 1:
+                out[bid] = [round(GROUND_FLOOR_H + (d["fl"] - 1) * FLOOR_H, 1), "건축물대장(층수)"]
+            else:
+                continue
             n2 += 1
         if (i + 1) % 200 == 0:
+            save_dj_cache()
             say("    %d/%d … %s동 확보" % (i + 1, len(todo), format(n2, ",")))
+    save_dj_cache()
     say("    → 건축물대장으로 %s동을 채웠습니다." % format(n2, ","))
     return out
 
