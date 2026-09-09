@@ -39,6 +39,19 @@ vec3 shadeNight(vec3 N, vec3 base){
 }
 `;
 
+// 이 화소가 표면 위에서 덮는 거리(m).
+// GLSL의 fwidth()는 환경에 따라 쓰레기값이 나올 수 있어서(실측으로 확인함)
+// 카메라 거리와 화면 해상도로 직접 계산한다. 어디서나 같은 결과가 나온다.
+export const FOOTPRINT = /* glsl */`
+uniform float uPixelScale;   // = 2*tan(fov/2) / 화면세로픽셀
+float pixelFootprint(vec3 wpos, vec3 N){
+  vec3 d = wpos - cameraPosition;
+  float dist = length(d);
+  float graze = max(0.14, abs(dot(normalize(N), d/max(dist,0.001))));
+  return dist * uPixelScale / graze;
+}
+`;
+
 export const FOG_APPLY = /* glsl */`
 float fogDist = length(vWorld - cameraPosition);
 float fogF = 1.0 - exp(-uFogDensity*uFogDensity*fogDist*fogDist);
@@ -57,5 +70,6 @@ export function makeSceneUniforms(THREE, CFG) {
     uAmbGround:  { value: v3(CFG.ambGround) },
     uCityGlow:   { value: v3(CFG.cityGlow) },
     uLitRatio:   { value: CFG.litRatio },
+    uPixelScale: { value: 0.0012 },
   };
 }

@@ -123,11 +123,20 @@ async function main() {
     U.uLitRatio.value = Number(lit.value) / 100; el('lit-v').textContent = lit.value + '%';
   };
 
+  // 화면 크기·화각이 바뀌면 '한 화소가 몇 m인지'도 바뀐다
+  function updatePixelScale() {
+    const s = new THREE.Vector2();
+    renderer.getDrawingBufferSize(s);
+    U.uPixelScale.value = 2 * Math.tan(camera.fov * 0.5 * Math.PI / 180) / Math.max(1, s.y);
+  }
+  updatePixelScale();
+
   addEventListener('resize', () => {
     camera.aspect = innerWidth / innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(innerWidth, innerHeight);
     composer.setSize(innerWidth, innerHeight);
+    updatePixelScale();
   });
 
   // ── 첫 화면이 준비될 때까지 미리 청크를 채운다 ──

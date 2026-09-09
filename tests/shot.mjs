@@ -65,7 +65,13 @@ const err = await page.evaluate(() => {
 }).catch(() => null);
 
 const file = path.join(OUT, `${name}.png`);
-await page.screenshot({ path: file });
+if (process.env.CLIP) {
+  // CLIP="x,y,w,h" 로 일부만 잘라 확대 관찰 (지글거림 원인 추적용)
+  const [cx, cy, cw, ch] = process.env.CLIP.split(',').map(Number);
+  await page.screenshot({ path: file, clip: { x: cx, y: cy, width: cw, height: ch } });
+} else {
+  await page.screenshot({ path: file });
+}
 
 // 화면이 정말 '까맣지 않은지' 픽셀로 확인한다 (조용한 실패 방지)
 const px = await page.evaluate(() => {
