@@ -15,6 +15,8 @@ import { ChunkManager } from './core/chunkManager.js';
 import { buildBuildingMesh } from './build/buildings.js';
 import { buildRoadMesh } from './build/roads.js';
 import { createBaseGround, buildAreaMesh } from './build/ground.js';
+import { buildPropsMesh } from './build/props.js';
+import { buildSignMesh, atlas } from './build/signs.js';
 import { createSky } from './night/sky.js';
 import { CameraRig } from './controls/rig.js';
 
@@ -70,6 +72,8 @@ async function main() {
     { key: 'road', group: 'road', fn: (c, u) => buildRoadMesh(c, u) },
     { key: 'bld', group: 'osm', fn: (c, u) => buildBuildingMesh((c.buildings || []).filter(b => !b.gen), u) },
     { key: 'bldgen', group: 'gen', fn: (c, u) => buildBuildingMesh((c.buildings || []).filter(b => b.gen), u) },
+    { key: 'prop', group: 'prop', fn: (c, u) => buildPropsMesh(c, u) },
+    { key: 'sign', group: 'sign', fn: (c, u) => buildSignMesh(c, u) },
   ];
   const chunks = new ChunkManager(scene, U, index, builders);
   window.__chunks = chunks;
@@ -155,6 +159,10 @@ async function main() {
     rig.update(dt);
     const focus = chunks.focusOf(camera);
     chunks.update(focus, CFG.viewRadius);
+
+    // 간판 글자 아틀라스가 바뀌었으면 이때 한 번만 GPU로 올린다
+    const A = atlas();
+    if (A.dirty) { A.tex.needsUpdate = true; A.dirty = false; }
 
     renderer.info.reset();
     composer.render();
