@@ -9,6 +9,15 @@ import { CFG } from '../config.js';
 
 const ST_NONE = 0, ST_LOADING = 1, ST_LOADED = 2, ST_BUILT = 3;
 
+function pointInPoly(x, z, poly) {
+  let inside = false;
+  for (let i = 0, n = poly.length, j = n - 1; i < n; j = i++) {
+    const xi = poly[i][0], zi = poly[i][1], xj = poly[j][0], zj = poly[j][1];
+    if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi + 1e-12) + xi) inside = !inside;
+  }
+  return inside;
+}
+
 // 가까운 청크에만 만드는 것들(간판·사람·차·설치물)의 기준 거리(m)
 export const NEAR_DIST = 260;
 
@@ -41,6 +50,10 @@ export class ChunkManager {
     // 걷기 충돌용: 건물 외곽선을 격자에 담아둔다
     this.collGrid = new Map();
     this.collCell = 25;
+    // 걷기 지면용: 도로·보도 조각을 격자에 담아둔다
+    // (보도 턱을 실제로 밟고 내려가는 느낌을 내려면 발밑 높이를 알아야 한다)
+    this.groundGrid = new Map();
+    this.groundCell = 25;
   }
 
   key(cx, cz) { return `${cx}_${cz}`; }
@@ -205,6 +218,7 @@ export class ChunkManager {
     if (near) this._buildNear(r);
     if (!r.collAdded) {
       for (const bd of (r.data.buildings || [])) this._addColl(bd);
+      this._addGround(r);
       r.collAdded = true;
     }
     this.stats.buildings += (r.data.buildings || []).length;
@@ -260,6 +274,7 @@ export class ChunkManager {
     r.near = false;
     if (r.collAdded) {
       for (const bd of ((r.data && r.data.buildings) || [])) this._delColl(bd);
+      this._delGround(r);
       r.collAdded = false;
     }
     if (r.state === ST_BUILT) {
@@ -284,29 +299,163 @@ export class ChunkManager {
   _addColl(bd) {
     for (const k of this._cellsOf(bd.poly)) {
       let a = this.collGrid.get(k); if (!a) { a = []; this.collGrid.set(k, a); }
-      a.push(bd.poly);
+      a.push(bd);
     }
   }
   _delColl(bd) {
     for (const k of this._cellsOf(bd.poly)) {
       const a = this.collGrid.get(k); if (!a) continue;
-      const i = a.indexOf(bd.poly); if (i >= 0) a.splice(i, 1);
+      const i = a.indexOf(bd); if (i >= 0) a.splice(i, 1);
     }
   }
+
+  /** 이 점을 품고 있는 건물(이름·높이 포함). 없으면 null */
+  buildingAt(x, z) {
+    const c = this.collCell;
+    const a = this.collGrid.get(`${Math.floor(x / c)}_${Math.floor(z / c)}`);
+    if (!a) return null;
+    for (const bd of a) if (pointInPoly(x, z, bd.poly)) return bd;
+    return null;
+  }
+
+  /** 화면 한가운데가 가리키는 건물 (최대 140m 앞까지 훑는다) */
+  lookingAt(camera) {
+    const d = new THREE.Vector3();
+    camera.getWorldDirection(d);
+    const p = camera.position;
+    const hx = Math.hypot(d.x, d.z);
+    if (hx < 0.02) return null;
+    const ux = d.x / hx, uz = d.z / hx;
+    for (let t = 3; t < 140; t += 2.5) {
+      const x = p.x + ux * t, z = p.z + uz * t;
+      const y = p.y + (d.y / hx) * t;         // 그 거리에서의 시선 높이
+      const bd = this.buildingAt(x, z);
+      if (bd && bd.h > y) return { b: bd, dist: t };
+    }
+    return null;
+  }
+  // ── 발밑 지면 ──
+  _groundCells(ax, az, bx, bz, pad) {
+    const c = this.groundCell, out = [];
+    const x0 = Math.floor((Math.min(ax, bx) - pad) / c), x1 = Math.floor((Math.max(ax, bx) + pad) / c);
+    const z0 = Math.floor((Math.min(az, bz) - pad) / c), z1 = Math.floor((Math.max(az, bz) + pad) / c);
+    for (let gx = x0; gx <= x1; gx++) for (let gz = z0; gz <= z1; gz++) out.push(`${gx}_${gz}`);
+    return out;
+  }
+
+  _addGround(r) {
+    const segs = [];
+    for (const road of (r.data.roads || [])) {
+      if (road.tunnel) continue;
+      const y = 0.02 + (road.z || 1) * 0.007 + (road.layer || 0) * 5.5;
+      const half = road.w / 2, sw = road.sw || 0;
+      for (let i = 0; i < road.pts.length - 1; i++) {
+        segs.push({ ax: road.pts[i][0], az: road.pts[i][1],
+                    bx: road.pts[i + 1][0], bz: road.pts[i + 1][1],
+                    half, sw, y, walk: false, name: road.name || '', cls: road.cls });
+      }
+    }
+    for (const f of (r.data.footways || [])) {
+      if (f.tunnel) continue;
+      const y = 0.165 + (f.layer || 0) * 5.5;
+      for (let i = 0; i < f.pts.length - 1; i++) {
+        segs.push({ ax: f.pts[i][0], az: f.pts[i][1],
+                    bx: f.pts[i + 1][0], bz: f.pts[i + 1][1],
+                    half: 1.3, sw: 0, y, walk: true });
+      }
+    }
+    r.groundSegs = segs;
+    for (const sg of segs) {
+      for (const k of this._groundCells(sg.ax, sg.az, sg.bx, sg.bz, sg.half + sg.sw + 1)) {
+        let a = this.groundGrid.get(k); if (!a) { a = []; this.groundGrid.set(k, a); }
+        a.push(sg);
+      }
+    }
+  }
+
+  _delGround(r) {
+    for (const sg of (r.groundSegs || [])) {
+      for (const k of this._groundCells(sg.ax, sg.az, sg.bx, sg.bz, sg.half + sg.sw + 1)) {
+        const a = this.groundGrid.get(k); if (!a) continue;
+        const i = a.indexOf(sg); if (i >= 0) a.splice(i, 1);
+      }
+    }
+    r.groundSegs = null;
+  }
+
+  /** 이 점에서 가장 가까운 도로 조각 (자동 산책이 보도를 따라가는 데 쓴다) */
+  nearestRoadSeg(x, z) {
+    const c = this.groundCell;
+    let best = null, bd = 1e9;
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        const a = this.groundGrid.get(`${Math.floor(x / c) + dx}_${Math.floor(z / c) + dz}`);
+        if (!a) continue;
+        for (const sg of a) {
+          if (sg.walk) continue;
+          const ux = sg.bx - sg.ax, uz = sg.bz - sg.az;
+          const dd = ux * ux + uz * uz;
+          const t = dd < 1e-9 ? 0 : Math.max(0, Math.min(1, ((x - sg.ax) * ux + (z - sg.az) * uz) / dd));
+          const qx = sg.ax + ux * t, qz = sg.az + uz * t;
+          const d = Math.hypot(x - qx, z - qz);
+          if (d < bd) {
+            const L = Math.sqrt(dd) || 1;
+            // 어느 쪽에 서 있는가 (외적 부호)
+            const side = ((x - sg.ax) * (uz / L) - (z - sg.az) * (ux / L)) > 0 ? -1 : 1;
+            bd = d;
+            best = { sg, t, qx, qz, dist: d, dirX: ux / L, dirZ: uz / L, side, len: L };
+          }
+        }
+      }
+    }
+    return best;
+  }
+
+  /** 발밑 높이(m). 차도면 노면, 보도면 턱 위, 아무것도 없으면 맨땅. */
+  groundAt(x, z) {
+    const c = this.groundCell;
+    let roadY = null, walkY = null;
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        const a = this.groundGrid.get(`${Math.floor(x / c) + dx}_${Math.floor(z / c) + dz}`);
+        if (!a) continue;
+        for (const sg of a) {
+          const ux = sg.bx - sg.ax, uz = sg.bz - sg.az;
+          const dd = ux * ux + uz * uz;
+          const t = dd < 1e-9 ? 0 : Math.max(0, Math.min(1, ((x - sg.ax) * ux + (z - sg.az) * uz) / dd));
+          const d = Math.hypot(x - (sg.ax + ux * t), z - (sg.az + uz * t));
+          if (d <= sg.half) {
+            if (roadY === null || sg.y > roadY) roadY = sg.y;
+          } else if (sg.sw > 0.4 && d <= sg.half + sg.sw) {
+            const wy = sg.y + 0.145;
+            if (walkY === null || wy > walkY) walkY = wy;
+          } else if (sg.walk && d <= sg.half + 0.6) {
+            if (walkY === null || sg.y > walkY) walkY = sg.y;
+          }
+        }
+      }
+    }
+    // 보도가 있으면 보도 위(턱을 밟고 올라선 상태), 없으면 차도, 둘 다 없으면 맨땅
+    if (walkY !== null) return walkY;
+    if (roadY !== null) return roadY;
+    return 0.05;
+  }
+
   /** 이 점이 건물 안인가? (걷기 모드에서 벽 통과 방지) */
   insideBuilding(x, z) {
     const c = this.collCell;
     const a = this.collGrid.get(`${Math.floor(x / c)}_${Math.floor(z / c)}`);
     if (!a) return false;
-    for (const poly of a) {
-      let inside = false;
-      for (let i = 0, n = poly.length, j = n - 1; i < n; j = i++) {
-        const xi = poly[i][0], zi = poly[i][1], xj = poly[j][0], zj = poly[j][1];
-        if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi + 1e-12) + xi) inside = !inside;
-      }
-      if (inside) return true;
-    }
+    for (const bd of a) if (pointInPoly(x, z, bd.poly)) return true;
     return false;
+  }
+
+  /** 지금 서 있는(또는 바로 옆) 도로 이름 */
+  roadNameAt(x, z) {
+    const n = this.nearestRoadSeg(x, z);
+    if (!n) return '';
+    if (n.dist > n.sg.half + Math.max(4, n.sg.sw) + 6) return '';
+    return n.sg.name || '';
   }
 
   /** 지금 보이는 범위가 전부 준비됐는가(스크린샷 검증용) */

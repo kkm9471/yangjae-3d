@@ -22,6 +22,8 @@ import { buildCarsMesh } from './build/cars.js';
 import { createSky } from './night/sky.js';
 import { applyTime, fmtHour, sunTimes } from './night/daycycle.js';
 import { CameraRig } from './controls/rig.js';
+import { Minimap } from './ui/minimap.js';
+import { Foley } from './audio/foley.js';
 
 const boot = document.getElementById('boot');
 const bootBar = boot.querySelector('.bar i');
@@ -111,8 +113,28 @@ async function main() {
   const rig = new CameraRig(camera, renderer.domElement, chunks);
   rig.setMode('orbit');
   document.getElementById('m-orbit').onclick = () => rig.setMode('orbit');
-  document.getElementById('m-walk').onclick = () => rig.setMode('walk');
-  document.getElementById('m-fly').onclick = () => rig.setMode('fly');
+  // 걷기·비행 버튼은 누르는 즉시 1인칭 조작으로 들어간다
+  // (예전에는 버튼을 눌러도 화면을 한 번 더 클릭해야 해서 '안 되는 줄' 알기 쉬웠다)
+  document.getElementById('m-walk').onclick = () => { rig.setMode('walk'); rig.lock(); foley.setEnabled(soundOn); };
+  document.getElementById('m-fly').onclick = () => { rig.setMode('fly'); rig.lock(); };
+  document.getElementById('m-auto').onclick = () => { rig.toggleAuto(); foley.setEnabled(soundOn); };
+
+  // ── 패널 접기 (걸어 다닐 때 화면을 가리지 않게) ──
+  const hudEl = document.getElementById('hud');
+  const toggleHud = () => hudEl.classList.toggle('mini');
+  document.getElementById('hudtitle').onclick = toggleHud;
+  addEventListener('keydown', (e) => {
+    if (e.code === 'KeyH' && !e.ctrlKey && !e.altKey && !e.metaKey) toggleHud();
+  });
+
+  // ── 미니맵 ──
+  const mapCv = document.getElementById('minimap');
+  const minimap = new Minimap(mapCv, chunks);
+
+  // ── 소리 (파일 없이 합성) ──
+  const foley = new Foley();
+  let soundOn = false;
+  rig.onStep = (sp) => foley.step(sp);
 
   // ── 명소 ──
   function goSpot(sp) {
@@ -141,6 +163,8 @@ async function main() {
   window.__spots = index.spots || [];
 
   // ── URL 로 시점 지정(자동 검증용) ──
+  // ?autowalk=1 — 자동 산책으로 시작(검증·시연용)
+  if (Q.get('autowalk') === '1') setTimeout(() => { rig.setMode('walk'); rig.auto = true; rig._syncAutoBtn(); }, 300);
   if (Q.has('spot')) {
     const key = Q.get('spot');
     const sp = /^\d+$/.test(key) ? (index.spots || [])[Number(key)]
@@ -181,6 +205,9 @@ async function main() {
   bind('t-people', e => { chunks.groups.people.visible = e.checked; });
   bind('t-car', e => { chunks.groups.car.visible = e.checked; });
   bind('t-bloom', e => { bloom.enabled = e.checked; });
+  bind('t-sound', e => { soundOn = e.checked; foley.setEnabled(soundOn); });
+  bind('t-map', e => { document.getElementById('nav').style.display = e.checked ? 'block' : 'none'; });
+  bind('t-gen', e => { minimap.showGen = e.checked; });
   const vd = el('vd'); vd.oninput = () => {
     CFG.viewRadius = Number(vd.value); el('vd-v').textContent = vd.value + ' m';
   };
@@ -235,6 +262,10 @@ async function main() {
   ping();
   setInterval(ping, 20000);
 
+  const COMPASS = ['북', '북동', '동', '남동', '남', '남서', '서', '북서'];
+  const dirTmp = new THREE.Vector3();
+  let navAcc = 0;
+
   // ── 자동 순회(검증용) ──
   // 카메라를 계속 움직여 청크가 실제로 로드·해제되게 만든다.
   // 정지 화면 스크린샷으로는 '버릴 때 터지는 버그'를 절대 못 잡는다.
@@ -273,6 +304,38 @@ async function main() {
     const focus = chunks.focusOf(camera);
     chunks.update(focus, CFG.viewRadius);
 
+    // ── 미니맵·현재 위치 안내 ──
+    minimap.setRange(rig.mode === 'walk' ? 170 : Math.max(180, CFG.viewRadius * 0.75));
+    minimap.update(dt, camera);
+
+    navAcc += dt;
+    if (navAcc > 0.2) {
+      navAcc = 0;
+      const p2 = camera.position;
+      const rn = chunks.roadNameAt(p2.x, p2.z);
+      el('road-v').textContent = rn || '이름 없는 길';
+      const dv = camera.getWorldDirection(dirTmp);
+      const brg = (Math.atan2(dv.x, -dv.z) * 180 / Math.PI + 360) % 360;
+      el('dir-v').textContent = `${COMPASS[Math.round(brg / 45) % 8]} ${Math.round(brg)}°`;
+
+      const walkish = rig.mode !== 'orbit';
+      document.getElementById('cross').style.display = walkish ? 'block' : 'none';
+      const lookEl = document.getElementById('look');
+      const hit = walkish ? chunks.lookingAt(camera) : null;
+      if (hit && hit.b.name) {
+        el('look-v').textContent = `${hit.b.name}  ·  ${Math.round(hit.dist)}m`;
+        lookEl.style.display = 'block';
+      } else {
+        lookEl.style.display = 'none';
+      }
+      // 큰길에 가까울수록 도시 소음이 커진다
+      if (soundOn) {
+        const ns = chunks.nearestRoadSeg(p2.x, p2.z);
+        const lv = ns ? Math.max(0, 1 - ns.dist / 70) * (ns.sg.half > 8 ? 1 : 0.45) : 0;
+        foley.setAmbience(lv);
+      }
+    }
+
     // 간판 글자 아틀라스가 바뀌었으면 이때 한 번만 GPU로 올린다
     const A = atlas();
     if (A.dirty) { A.tex.needsUpdate = true; A.dirty = false; }
@@ -298,6 +361,13 @@ async function main() {
     window.__ready = chunks.isSettled(focus, CFG.viewRadius);
   }
   tick();
+
+  window.__walkState = () => ({
+    mode: rig.mode, auto: rig.auto,
+    x: +camera.position.x.toFixed(1), y: +camera.position.y.toFixed(2), z: +camera.position.z.toFixed(1),
+    ground: +rig.groundY.toFixed(3), walked: +rig.walked.toFixed(1),
+    road: chunks.roadNameAt(camera.position.x, camera.position.z),
+  });
 
   window.__stats = () => ({
     errors: window.__errors,

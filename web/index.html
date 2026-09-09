@@ -12,7 +12,11 @@
   #hud{position:fixed;left:12px;top:12px;z-index:10;font-size:12px;line-height:1.55;
     background:rgba(6,10,18,.72);border:1px solid #1e2a3d;border-radius:8px;padding:10px 12px;
     backdrop-filter:blur(6px);min-width:238px;max-height:calc(100vh - 24px);overflow:auto}
-  #hud h1{font-size:13px;margin:0 0 6px;color:#8fd3ff;letter-spacing:.02em}
+  #hud h1{font-size:13px;margin:0 0 6px;color:#8fd3ff;letter-spacing:.02em;cursor:pointer;
+    display:flex;justify-content:space-between;align-items:center;gap:8px}
+  #hud h1 em{font-style:normal;font-size:10.5px;color:#5d6e88;font-weight:400}
+  #hud.mini > *:not(h1){display:none}
+  #hud.mini{min-width:0}
   #hud .row{display:flex;justify-content:space-between;gap:10px}
   #hud .k{color:#7d8ba3}
   #hud .v{color:#e8f0ff;font-variant-numeric:tabular-nums}
@@ -36,6 +40,22 @@
     color:#ffd9d9;padding:10px 12px;border-radius:8px;font-size:12px;display:none;white-space:pre-wrap}
   #attr{position:fixed;right:12px;top:12px;z-index:10;font-size:10.5px;color:#5a6b83;
     background:rgba(6,10,18,.6);padding:4px 8px;border-radius:5px}
+  #nav{position:fixed;right:12px;bottom:92px;z-index:10;display:flex;
+    flex-direction:column-reverse;align-items:center}
+  #minimap{display:block;border-radius:50%;box-shadow:0 2px 14px rgba(0,0,0,.55)}
+  #navtxt{margin-bottom:6px;font-size:12px;color:#cfe0f5;background:rgba(6,10,18,.72);
+    border:1px solid #1e2a3d;border-radius:6px;padding:4px 9px;display:inline-block;white-space:nowrap}
+  #navtxt b{color:#8fd3ff}
+  #navtxt span{color:#7d8ba3;margin-left:7px}
+  #look{position:fixed;left:50%;top:calc(50% + 26px);transform:translateX(-50%);z-index:9;
+    font-size:12.5px;color:#e8f0ff;text-shadow:0 1px 3px #000;pointer-events:none;
+    background:rgba(6,10,18,.5);padding:3px 10px;border-radius:5px;display:none}
+  #cross{position:fixed;left:50%;top:50%;width:5px;height:5px;margin:-2.5px 0 0 -2.5px;z-index:9;
+    border-radius:50%;background:rgba(255,255,255,.55);box-shadow:0 0 3px rgba(0,0,0,.8);display:none}
+  #lockhint{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:20;display:none;
+    background:rgba(8,13,22,.86);border:1px solid #2b3a52;border-radius:10px;padding:16px 26px;
+    text-align:center;font-size:15px;color:#dfe9f7;pointer-events:none;line-height:1.7}
+  #lockhint small{color:#8794a8;font-size:12px}
 </style>
 </head>
 <body>
@@ -44,7 +64,7 @@
 <div id="attr">건물·도로 데이터 © OpenStreetMap contributors (ODbL)</div>
 
 <div id="hud">
-  <h1>양재역 사거리 · 24시간</h1>
+  <h1 id="hudtitle" title="클릭하거나 H 키로 접기/펼치기">양재역 사거리 · 24시간 <em>H</em></h1>
   <div class="row"><span class="k">FPS</span><span class="v" id="fps">–</span></div>
   <div class="row"><span class="k">위치</span><span class="v" id="pos">–</span></div>
   <div class="row"><span class="k">위경도</span><span class="v" id="ll">–</span></div>
@@ -55,10 +75,13 @@
   <div class="row"><span class="k">드로우콜</span><span class="v" id="dc">–</span></div>
   <hr>
   <div class="k" style="margin-bottom:3px">시점</div>
-  <div class="btns">
+  <div class="btns" id="viewbtns">
     <button id="m-orbit">둘러보기</button>
     <button id="m-walk">걷기</button>
     <button id="m-fly">비행</button>
+  </div>
+  <div class="btns">
+    <button id="m-auto" style="flex:1 1 100%">🚶 자동 산책</button>
   </div>
   <hr>
   <div class="k" style="margin-bottom:3px">명소로 가기</div>
@@ -69,6 +92,8 @@
   <label><input type="checkbox" id="t-people" checked> 사람</label>
   <label><input type="checkbox" id="t-car" checked> 차량</label>
   <label><input type="checkbox" id="t-bloom" checked> 빛 번짐(블룸)</label>
+  <label><input type="checkbox" id="t-sound"> 소리 (발소리·도시 소음)</label>
+  <label><input type="checkbox" id="t-map" checked> 미니맵</label>
   <hr>
   <div class="row"><span class="k">시각</span><span class="v" id="hr-v">20:30</span></div>
   <input type="range" id="hr" min="0" max="24" step="0.25" value="20.5">
@@ -83,10 +108,20 @@
   <input type="range" id="lit" min="0" max="100" step="5" value="55">
 </div>
 
+<div id="nav">
+  <canvas id="minimap" width="168" height="168"></canvas>
+  <div id="navtxt"><b id="road-v">–</b><span id="dir-v">–</span></div>
+</div>
+<div id="look"><span id="look-v"></span></div>
+<div id="cross"></div>
+<div id="lockhint">화면을 클릭하면 걷기 시작<br><small>W A S D 이동 · Shift 달리기 · ESC 로 빠져나오기</small></div>
+
 <div id="help">
   <b>둘러보기</b> 드래그=회전 · 휠=확대 · 우클릭드래그=이동<br>
   <b>걷기</b> 화면 클릭 → <b>W A S D</b> 이동 · <b>Shift</b> 달리기 · <b>ESC</b> 해제<br>
-  <b>비행</b> W A S D + <b>Q/E</b> 상하 · 마우스 시점
+  <b>자동 산책</b> 버튼을 누르면 보도를 따라 저절로 걷습니다<br>
+  <b>비행</b> W A S D + <b>Q/E</b> 상하 · 마우스 시점<br>
+  <b>H</b> 왼쪽 패널 접기/펼치기
 </div>
 
 <script type="importmap">

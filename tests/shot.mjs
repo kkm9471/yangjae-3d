@@ -56,10 +56,15 @@ while (Date.now() - t0 < WAIT) {
   if (ready) break;
   await new Promise(r => setTimeout(r, 500));
 }
+// DWELL=밀리초 — 준비된 뒤 이만큼 더 두고 본다(자동 산책 같은 지속 동작 검증용)
+if (process.env.DWELL) await new Promise(r => setTimeout(r, Number(process.env.DWELL)));
+
 // 블룸/애니메이션이 안정될 시간
 await new Promise(r => setTimeout(r, 1500));
 
 const stats = await page.evaluate(() => (window.__stats ? window.__stats() : null)).catch(() => null);
+const walk = await page.evaluate(() => (window.__walkState ? window.__walkState() : null)).catch(() => null);
+if (walk) console.log('걷기:', JSON.stringify(walk));
 const err = await page.evaluate(() => {
   const e = document.getElementById('err');
   return e && e.style.display !== 'none' ? e.textContent : null;
