@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>양재역 야경 3D</title>
+<style>
+  html,body{margin:0;height:100%;background:#05070c;color:#dfe6f2;
+    font-family:"Malgun Gothic","맑은 고딕",system-ui,sans-serif;overflow:hidden}
+  canvas{display:block}
+  #hud{position:fixed;left:12px;top:12px;z-index:10;font-size:12px;line-height:1.55;
+    background:rgba(6,10,18,.72);border:1px solid #1e2a3d;border-radius:8px;padding:10px 12px;
+    backdrop-filter:blur(6px);min-width:238px;max-height:calc(100vh - 24px);overflow:auto}
+  #hud h1{font-size:13px;margin:0 0 6px;color:#8fd3ff;letter-spacing:.02em}
+  #hud .row{display:flex;justify-content:space-between;gap:10px}
+  #hud .k{color:#7d8ba3}
+  #hud .v{color:#e8f0ff;font-variant-numeric:tabular-nums}
+  #hud hr{border:0;border-top:1px solid #1c2739;margin:8px 0}
+  #hud label{display:flex;align-items:center;gap:6px;cursor:pointer;color:#b9c6db;padding:1px 0}
+  #hud input[type=range]{width:100%}
+  .btns{display:flex;gap:5px;margin:6px 0}
+  .btns button{flex:1;background:#152033;border:1px solid #26364f;color:#cfe0f5;border-radius:5px;
+    padding:5px 0;font-size:11px;cursor:pointer;font-family:inherit}
+  .btns button.on{background:#1f4a7a;border-color:#3a7ec0;color:#fff}
+  #help{position:fixed;right:12px;bottom:12px;z-index:10;font-size:11.5px;line-height:1.7;
+    background:rgba(6,10,18,.72);border:1px solid #1e2a3d;border-radius:8px;padding:9px 12px;color:#93a3ba}
+  #help b{color:#cfe0f5;font-weight:600}
+  #boot{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;
+    background:#05070c;flex-direction:column;gap:14px;transition:opacity .5s}
+  #boot .t{font-size:15px;color:#8fd3ff;letter-spacing:.04em}
+  #boot .s{font-size:12px;color:#63748e}
+  #boot .bar{width:260px;height:3px;background:#131c2b;border-radius:2px;overflow:hidden}
+  #boot .bar i{display:block;height:100%;width:0;background:#3a7ec0;transition:width .25s}
+  #err{position:fixed;inset:auto 12px 12px 12px;z-index:60;background:#3a1417;border:1px solid #7d2b2b;
+    color:#ffd9d9;padding:10px 12px;border-radius:8px;font-size:12px;display:none;white-space:pre-wrap}
+  #attr{position:fixed;right:12px;top:12px;z-index:10;font-size:10.5px;color:#5a6b83;
+    background:rgba(6,10,18,.6);padding:4px 8px;border-radius:5px}
+</style>
+</head>
+<body>
+<div id="boot"><div class="t">양재역 야경을 짓는 중</div><div class="bar"><i></i></div><div class="s" id="bootmsg">데이터 읽는 중…</div></div>
+<div id="err"></div>
+<div id="attr">건물·도로 데이터 © OpenStreetMap contributors (ODbL)</div>
+
+<div id="hud">
+  <h1>양재역 사거리 · 야경</h1>
+  <div class="row"><span class="k">FPS</span><span class="v" id="fps">–</span></div>
+  <div class="row"><span class="k">위치</span><span class="v" id="pos">–</span></div>
+  <div class="row"><span class="k">위경도</span><span class="v" id="ll">–</span></div>
+  <div class="row"><span class="k">건물</span><span class="v" id="nb">–</span></div>
+  <div class="row"><span class="k">간판</span><span class="v" id="ns">–</span></div>
+  <div class="row"><span class="k">사람·차</span><span class="v" id="npc">–</span></div>
+  <div class="row"><span class="k">청크</span><span class="v" id="nc">–</span></div>
+  <div class="row"><span class="k">드로우콜</span><span class="v" id="dc">–</span></div>
+  <hr>
+  <div class="k" style="margin-bottom:3px">시점</div>
+  <div class="btns">
+    <button id="m-orbit">둘러보기</button>
+    <button id="m-walk">걷기</button>
+    <button id="m-fly">비행</button>
+  </div>
+  <hr>
+  <label><input type="checkbox" id="t-gen" checked> 생성 건물 보이기</label>
+  <label><input type="checkbox" id="t-sign" checked> 간판</label>
+  <label><input type="checkbox" id="t-people" checked> 사람</label>
+  <label><input type="checkbox" id="t-car" checked> 차량</label>
+  <label><input type="checkbox" id="t-bloom" checked> 빛 번짐(블룸)</label>
+  <hr>
+  <div class="row"><span class="k">보이는 거리</span><span class="v" id="vd-v">300 m</span></div>
+  <input type="range" id="vd" min="150" max="1000" step="50" value="300">
+  <div class="row"><span class="k">창문 밝기</span><span class="v" id="lit-v">55%</span></div>
+  <input type="range" id="lit" min="0" max="100" step="5" value="55">
+</div>
+
+<div id="help">
+  <b>둘러보기</b> 드래그=회전 · 휠=확대 · 우클릭드래그=이동<br>
+  <b>걷기</b> 화면 클릭 → <b>W A S D</b> 이동 · <b>Shift</b> 달리기 · <b>ESC</b> 해제<br>
+  <b>비행</b> W A S D + <b>Q/E</b> 상하 · 마우스 시점
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/" } }
+</script>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "name": "yangjae-3d",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenStreetMap 좌표만으로 만든 양재역 사거리 야경 3D (이미지 파일 0개)",
+  "dependencies": {
+    "puppeteer-core": "^23.11.1"
+  }
+}
