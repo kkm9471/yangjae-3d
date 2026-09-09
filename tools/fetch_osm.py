@@ -23,12 +23,16 @@ import urllib.parse
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from config import ORIGIN_LAT, ORIGIN_LON, RAW_RADIUS_M  # noqa: E402
+import config as CF  # noqa: E402  (동네를 바꿀 수 있게 모듈로 참조)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RAW_DIR = os.path.join(ROOT, "data", "raw")
 RAW_PATH = os.path.join(RAW_DIR, "osm_raw.json")
 META_PATH = os.path.join(RAW_DIR, "osm_meta.json")
+
+
+def paths_for(raw_dir):
+    return os.path.join(raw_dir, "osm_raw.json"), os.path.join(raw_dir, "osm_meta.json")
 
 MIRRORS = [
     "https://overpass-api.de/api/interpreter",
@@ -80,7 +84,7 @@ out geom;
 
 
 def build_query(radius: int) -> str:
-    return QUERY_TEMPLATE.format(r=radius, lat=ORIGIN_LAT, lon=ORIGIN_LON)
+    return QUERY_TEMPLATE.format(r=radius, lat=CF.ORIGIN_LAT, lon=CF.ORIGIN_LON)
 
 
 def post(url: str, query: str, timeout: int = 900) -> bytes:
@@ -159,8 +163,19 @@ def summarize(doc: dict) -> dict:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--force", action="store_true", help="이미 받은 원본이 있어도 다시 받는다")
-    ap.add_argument("--radius", type=int, default=RAW_RADIUS_M)
+    ap.add_argument("--radius", type=int, default=None)
+    ap.add_argument("--dir", default=None, help="원본을 저장할 폴더")
+    ap.add_argument("--lat", type=float, default=None, help="중심 위도")
+    ap.add_argument("--lon", type=float, default=None, help="중심 경도")
     args = ap.parse_args()
+    global RAW_DIR, RAW_PATH, META_PATH
+    if args.lat is not None and args.lon is not None:
+        CF.set_origin(args.lat, args.lon)
+    if args.dir:
+        RAW_DIR = args.dir
+        RAW_PATH, META_PATH = paths_for(RAW_DIR)
+    if args.radius is None:
+        args.radius = CF.RAW_RADIUS_M
 
     os.makedirs(RAW_DIR, exist_ok=True)
 
@@ -177,14 +192,14 @@ def main():
             return
         print(f"[재수집] 기존 반경 {have}m < 요청 {args.radius}m")
 
-    print(f"[수집] 양재역 사거리({ORIGIN_LAT}, {ORIGIN_LON}) 반경 {args.radius}m")
+    print(f"[수집] ({CF.ORIGIN_LAT:.6f}, {CF.ORIGIN_LON:.6f}) 반경 {args.radius}m")
     doc = fetch(args.radius)
     counts = summarize(doc)
 
     # ── 최소 건전성 검사: 이 정도도 안 나오면 뭔가 잘못된 것 ──
     problems = []
     if counts["total"] < 3000:
-        problems.append(f"요소 총 {counts['total']}개 — 강남권 반경 {args.radius}m 치고 너무 적음")
+        problems.append(f"요소 총 {counts['total']}개 — 반경 {args.radius}m 치고 적음(시골이면 정상일 수 있음)")
     if counts["by_tag"].get("building", 0) < 300:
         problems.append(f"건물 {counts['by_tag'].get('building',0)}개 — 너무 적음")
     if counts["by_tag"].get("highway", 0) < 200:
@@ -198,7 +213,7 @@ def main():
     with open(RAW_PATH, "w", encoding="utf-8") as f:
         json.dump(doc, f, ensure_ascii=False)
     meta = {
-        "origin": {"lat": ORIGIN_LAT, "lon": ORIGIN_LON},
+        "origin": {"lat": CF.ORIGIN_LAT, "lon": CF.ORIGIN_LON},
         "radius_m": args.radius,
         "fetched_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "osm_timestamp": doc.get("osm3s", {}).get("timestamp_osm_base"),

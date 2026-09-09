@@ -23,6 +23,15 @@
   #hud hr{border:0;border-top:1px solid #1c2739;margin:8px 0}
   #hud label{display:flex;align-items:center;gap:6px;cursor:pointer;color:#b9c6db;padding:1px 0}
   #hud input[type=range]{width:100%}
+  #hud select,#hud input[type=text]{width:100%;background:#101a2b;border:1px solid #26364f;
+    color:#dfe9f7;border-radius:5px;padding:5px 7px;font-size:12px;font-family:inherit;box-sizing:border-box}
+  #qrow{display:flex;gap:5px;margin-top:5px}
+  #qrow input{flex:1}
+  #qrow button{flex:0 0 62px;background:#1f4a7a;border:1px solid #3a7ec0;color:#fff;
+    border-radius:5px;font-size:12px;cursor:pointer;font-family:inherit}
+  #qrow button:disabled{opacity:.45;cursor:default}
+  #qmsg{margin-top:5px;font-size:11.5px;color:#8fd3ff;line-height:1.5;min-height:1px}
+  #qmsg.err{color:#ff9d9d}
   .btns{display:flex;gap:5px;margin:6px 0}
   .btns button{flex:1 1 46%;background:#152033;border:1px solid #26364f;color:#cfe0f5;border-radius:5px;
     padding:5px 0;font-size:11px;cursor:pointer;font-family:inherit}
@@ -73,6 +82,14 @@
   <div class="row"><span class="k">사람·차</span><span class="v" id="npc">–</span></div>
   <div class="row"><span class="k">청크</span><span class="v" id="nc">–</span></div>
   <div class="row"><span class="k">드로우콜</span><span class="v" id="dc">–</span></div>
+  <hr>
+  <div class="k" style="margin-bottom:3px">동네</div>
+  <select id="placesel"></select>
+  <div id="qrow">
+    <input id="q" type="text" placeholder="주소·지명 (예: 부산 해운대역)" autocomplete="off">
+    <button id="qgo">찾기</button>
+  </div>
+  <div id="qmsg"></div>
   <hr>
   <div class="k" style="margin-bottom:3px">시점</div>
   <div class="btns" id="viewbtns">

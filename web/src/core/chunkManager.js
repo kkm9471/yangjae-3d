@@ -22,10 +22,12 @@ function pointInPoly(x, z, poly) {
 export const NEAR_DIST = 260;
 
 export class ChunkManager {
-  constructor(scene, uniforms, index, builders) {
+  constructor(scene, uniforms, index, builders, base) {
+    // base = 이 동네의 데이터 폴더 (예: ./data/places/yangjae)
     this.scene = scene;
     this.uniforms = uniforms;
     this.index = index;
+    this.base = base || './data';
     this.builders = builders;           // [{key, group, fn}]
     this.cs = index.chunkSize;
     this.chunks = new Map();            // "cx_cz" -> record
@@ -168,7 +170,7 @@ export class ChunkManager {
     const gen = ++r.gen;               // 이 요청의 세대번호
     this.inflight++;
     try {
-      const res = await fetch(`./data/chunks/${r.k}.json${this.ver}`);
+      const res = await fetch(`${this.base}/chunks/${r.k}.json${this.ver}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       // 기다리는 사이에 이 청크가 버려졌다면(카메라가 멀어짐) 늦게 온 응답은 버린다.

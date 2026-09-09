@@ -1,0 +1,29 @@
+{
+ "origin": {
+  "lat": 37.5633295,
+  "lon": 126.9747869
+ },
+ "radius_m": 1000,
+ "name": "시청",
+ "counts": {
+  "total": 10534,
+  "node": 5209,
+  "way": 5301,
+  "relation": 24,
+  "by_tag": {
+   "railway": 220,
+   "public_transport": 173,
+   "highway": 1870,
+   "amenity": 3469,
+   "shop": 779,
+   "leisure": 220,
+   "landuse": 156,
+   "office": 97,
+   "man_made": 15,
+   "natural": 557,
+   "building": 3001
+  }
+ },
+ "fetched_at": "2026-09-09 15:39:24",
+ "license": "© OpenStreetMap contributors (ODbL)"
+}

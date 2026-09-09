@@ -17,8 +17,13 @@ import socketserver
 import sys
 import threading
 import time
+import json
+import threading as _th
 import urllib.error
 import urllib.request
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import place as PLACE      # noqa: E402  (주소 검색 → 동네 만들기)
 
 PORT = int(os.environ.get("YANGJAE_PORT", "8765"))
 STAY = "--stay" in sys.argv          # 계속 켜 둔다(즐겨찾기·자동시작용)
@@ -31,6 +36,23 @@ LOG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
 
 _last = [time.time()]
 _seen_browser = [False]
+
+# 주소 검색으로 동네를 만드는 작업의 상태 (화면이 0.5초마다 물어본다)
+_job = {"state": "idle", "message": "", "slug": "", "name": ""}
+
+
+def _run_build(q):
+    _job.update(state="running", message="시작하는 중…", slug="", name="")
+    try:
+        def say(m):
+            _job["message"] = m
+            _last[0] = time.time()      # 만드는 동안은 유휴 종료하지 않는다
+        rec = PLACE.build_place(q, progress=say)
+        _job.update(state="done", message=f"완료: {rec['name']}",
+                    slug=rec["slug"], name=rec["name"])
+    except Exception as e:
+        log(f"동네 만들기 실패: {e}")
+        _job.update(state="error", message=str(e) or "알 수 없는 오류")
 
 
 def log(msg):
@@ -46,6 +68,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=ROOT, **kw)
 
+    def _json(self, obj, code=200):
+        body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
         if self.path.startswith("/__ping"):
             _last[0] = time.time()
@@ -54,7 +84,34 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             return
+        if self.path.startswith("/__job"):
+            self._json(dict(_job))
+            return
         super().do_GET()
+
+    def do_POST(self):
+        # 화면에서 주소를 넣으면 여기로 온다. 셸을 거치지 않고 파이썬 함수만 부른다.
+        if not self.path.startswith("/__build"):
+            self.send_error(404)
+            return
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
+        except Exception:
+            self._json({"ok": False, "error": "요청을 읽지 못했습니다."}, 400)
+            return
+        q = (body.get("q") or "").strip()
+        if not q:
+            self._json({"ok": False, "error": "주소를 입력해 주세요."}, 400)
+            return
+        if len(q) > 120:
+            self._json({"ok": False, "error": "주소가 너무 깁니다."}, 400)
+            return
+        if _job.get("state") == "running":
+            self._json({"ok": False, "error": "이미 다른 동네를 만들고 있습니다."}, 409)
+            return
+        _th.Thread(target=_run_build, args=(q,), daemon=True).start()
+        self._json({"ok": True})
 
     def end_headers(self):
         # 코드를 고쳤는데 옛날 것이 그대로 보이는 사고를 막는다

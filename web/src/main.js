@@ -45,7 +45,17 @@ const Q = new URLSearchParams(location.search);
 
 async function main() {
   bootMsg.textContent = '지도 데이터 목록 읽는 중…';
-  const index = await (await fetch('./data/index.json', { cache: 'no-store' })).json();
+
+  // ── 어느 동네를 볼 것인가 ──
+  let places = { default: 'yangjae', places: [] };
+  try {
+    places = await (await fetch('./data/places.json', { cache: 'no-store' })).json();
+  } catch (e) { /* 목록이 없으면 기본 동네만 */ }
+  const slug = Q.get('place') || places.default || 'yangjae';
+  const dataBase = `./data/places/${slug}`;
+  const placeRec = (places.places || []).find(p => p.slug === slug);
+
+  const index = await (await fetch(`${dataBase}/index.json`, { cache: 'no-store' })).json();
   // 격자 크기는 데이터가 정한다. JS에 손으로 박아 두면 config.py 를 바꾸는 순간
   // 가로등·사람·차가 조용히 사라진다.
   if (index.chunkSize) CFG.chunkSize = index.chunkSize;
@@ -96,7 +106,7 @@ async function main() {
     { key: 'people', group: 'people', near: true, fn: (c, u) => buildPeopleMesh(c, u) },
     { key: 'car', group: 'car', near: true, fn: (c, u) => buildCarsMesh(c, u) },
   ];
-  const chunks = new ChunkManager(scene, U, index, builders);
+  const chunks = new ChunkManager(scene, U, index, builders, dataBase);
   window.__chunks = chunks;
 
   // ── 후처리(빛 번짐) ──
@@ -119,7 +129,73 @@ async function main() {
   document.getElementById('m-fly').onclick = () => { rig.setMode('fly'); rig.lock(); };
   document.getElementById('m-auto').onclick = () => { rig.toggleAuto(); foley.setEnabled(soundOn); };
 
+  // ── 동네 고르기 / 주소로 새 동네 만들기 ──
+  {
+    const gid = (i) => document.getElementById(i);
+    const sel = gid('placesel');
+    const list = (places.places || []).slice();
+    if (!list.length) list.push({ slug, name: (placeRec && placeRec.name) || slug });
+    sel.innerHTML = '';
+    for (const p of list) {
+      const o = document.createElement('option');
+      o.value = p.slug;
+      o.textContent = p.name + (p.buildings ? '  (건물 ' + p.buildings.toLocaleString() + ')' : '');
+      if (p.slug === slug) o.selected = true;
+      sel.appendChild(o);
+    }
+    sel.onchange = () => { location.search = '?place=' + encodeURIComponent(sel.value); };
+
+    const qEl = gid('q'), goEl = gid('qgo'), msgEl = gid('qmsg');
+    const setMsg = (t, bad) => { msgEl.textContent = t; msgEl.classList.toggle('err', !!bad); };
+
+    let polling = null;
+    const poll = async () => {
+      try {
+        const j = await (await fetch('./__job', { cache: 'no-store' })).json();
+        setMsg(j.message || '…', j.state === 'error');
+        if (j.state === 'done' && j.slug) {
+          clearInterval(polling);
+          setMsg('완료! 화면을 새로 엽니다…');
+          setTimeout(() => { location.search = '?place=' + encodeURIComponent(j.slug); }, 700);
+        } else if (j.state === 'error') {
+          clearInterval(polling);
+          goEl.disabled = false;
+        }
+      } catch (e) { /* 잠깐 실패는 무시 */ }
+    };
+
+    const go = async () => {
+      const q = qEl.value.trim();
+      if (!q) { setMsg('주소나 지명을 적어 주세요.', true); return; }
+      goEl.disabled = true;
+      setMsg('요청하는 중…');
+      try {
+        const r = await fetch('./__build', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ q }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.ok) {
+          setMsg(j.error || '이 서버는 동네 만들기를 지원하지 않습니다. 실행.bat 으로 다시 열어 주세요.', true);
+          goEl.disabled = false;
+          return;
+        }
+        if (polling) clearInterval(polling);
+        polling = setInterval(poll, 700);
+        poll();
+      } catch (e) {
+        setMsg('서버에 연결하지 못했습니다. 실행.bat 으로 다시 열어 주세요.', true);
+        goEl.disabled = false;
+      }
+    };
+    goEl.onclick = go;
+    qEl.onkeydown = (e) => { if (e.key === 'Enter') go(); };
+  }
+
   // ── 패널 접기 (걸어 다닐 때 화면을 가리지 않게) ──
+  const titleEl = document.getElementById('hudtitle');
+  titleEl.firstChild.textContent = ((placeRec && placeRec.name) || '양재역 사거리') + ' · 24시간 ';
   const hudEl = document.getElementById('hud');
   const toggleHud = () => hudEl.classList.toggle('mini');
   document.getElementById('hudtitle').onclick = toggleHud;

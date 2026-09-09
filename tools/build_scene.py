@@ -25,13 +25,14 @@ from collections import defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import geom as G                      # noqa: E402
-from config import (ORIGIN_LAT, ORIGIN_LON, RAW_RADIUS_M, CHUNK_SIZE_M,   # noqa: E402
-                    M_PER_DEG_LAT, M_PER_DEG_LON, to_local)
+import config as CF                # noqa: E402  (값이 아니라 모듈로 참조해야 동네 변경이 반영된다)
+from config import to_local        # noqa: E402  (함수는 호출 시점에 config 전역을 읽으므로 안전)
 from names import cat_of              # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# 기본 경로(양재). build(...) 로 다른 동네를 만들 때는 인자로 덮어쓴다.
 RAW_PATH = os.path.join(ROOT, "data", "raw", "osm_raw.json")
-OUT_DIR = os.path.join(ROOT, "web", "data")
+OUT_DIR = os.path.join(ROOT, "web", "data", "places", CF.DEFAULT_SLUG)
 CHUNK_DIR = os.path.join(OUT_DIR, "chunks")
 
 # ── 도로 규격: (편도 기본 차로수, 차로폭 m, 보도폭 m, 그리기 우선순위) ──
@@ -182,14 +183,19 @@ def load(raw_path):
 
 
 # ─────────────────────────── 메인 빌드 ───────────────────────────
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--radius", type=int, default=RAW_RADIUS_M,
-                    help="청크를 만들 최대 반경(m). 기본=원본 반경 전체")
-    ap.add_argument("--no-fill", action="store_true", help="생성 건물 채우기 끄기")
-    ap.add_argument("--fill-density", type=float, default=1.0)
-    args = ap.parse_args()
-    R = args.radius
+def build(raw_path=None, out_dir=None, radius=None, fill=True, density=1.0):
+    """원본 OSM 파일 하나를 3D용 청크로 만든다.
+
+    동네를 바꾸려면 먼저 config.set_origin(lat, lon) 을 부르고,
+    그 동네의 raw_path / out_dir 을 넘긴다.
+    """
+    global RAW_PATH, OUT_DIR, CHUNK_DIR
+    if raw_path:
+        RAW_PATH = raw_path
+    if out_dir:
+        OUT_DIR = out_dir
+        CHUNK_DIR = os.path.join(out_dir, "chunks")
+    R = radius or CF.RAW_RADIUS_M
 
     t0 = time.time()
     print(f"[읽기] {RAW_PATH}")
@@ -384,8 +390,8 @@ def main():
 
     # ── 생성 건물로 도로변 빈틈 메우기 ──
     gen_count = 0
-    if not args.no_fill:
-        gen = fill_streets(roads, buildings, areas, R, args.fill_density)
+    if fill:
+        gen = fill_streets(roads, buildings, areas, R, density)
         buildings.extend(gen)
         gen_count = len(gen)
         print(f"[채움] 생성 건물 {gen_count:,}동 추가 (OSM 실제 {len(buildings)-gen_count:,}동)")
@@ -401,10 +407,11 @@ def main():
     print(f"[명소] {len(spots)}곳: " + ", ".join(s['name'] for s in spots))
 
     # ── 청크로 나눠 쓰기 ──
-    write_chunks(buildings, roads, footways, crossings, areas, props, R, spots)
+    index = write_chunks(buildings, roads, footways, crossings, areas, props, R, spots)
 
     dt = time.time() - t0
     print(f"[완료] {dt:.1f}초")
+    return index
 
 
 # ─────────────────────────── 도로변 채우기 ───────────────────────────
@@ -691,32 +698,70 @@ def make_spots(buildings, roads, R):
         spots.append(sp)
 
     EYE = 1.68
-    main = sidewalk_points("강남대로", 5) or sidewalk_points(None, 5)
-    cross = sidewalk_points("남부순환로", 5)
 
-    # 1) 사거리에서 제일 가까운 보도 → 교차로 한복판을 본다
-    if main:
-        p, d, nm, w = min(main, key=lambda a: math.hypot(a[0][0], a[0][1]))
-        add("양재역 사거리", (p[0], EYE, p[1]), (0, 3.0, 0))
+    # ── 이 동네에서 가장 큰 길 두 개를 데이터에서 찾는다 ──
+    # (예전에는 '강남대로'·'남부순환로'가 코드에 박혀 있어서
+    #  다른 동네를 만들면 엉뚱한 이름의 명소가 나왔다)
+    by_name = defaultdict(lambda: [0.0, 0])      # 이름 → [총길이, 최고등급]
+    for r in roads:
+        nm = r.get("name")
+        # 고속도로·자동차전용도로(z>=7)는 걸어 다닐 수 없으니 명소에서 뺀다.
+        # 보도가 있는 큰길만 후보로 삼는다.
+        if not nm or r["tunnel"] or r["z"] < 3 or r["z"] > 6 or r["sw"] < 2.0:
+            continue
+        pts = [tuple(p) for p in r["pts"]]
+        L = G.polyline_length(pts)
+        by_name[nm][0] += L
+        by_name[nm][1] = max(by_name[nm][1], r["z"])
+    ranked = sorted(by_name.items(), key=lambda kv: (-kv[1][1], -kv[1][0]))
+    main_names = [nm for nm, _ in ranked[:2]]
 
-    # 2~3) 강남대로를 따라 남·북으로 떨어진 지점 → 사거리 쪽을 본다
-    for label, pick in (("강남대로 북쪽", lambda a: a[0][1] < -120),
-                        ("강남대로 남쪽", lambda a: a[0][1] > 120)):
-        cand = [a for a in main if pick(a) and abs(a[0][0]) < 60]
-        if cand:
-            p, d, nm, w = min(cand, key=lambda a: abs(abs(a[0][1]) - 170))
-            add(label, (p[0], EYE, p[1]), (0, 8.0, 0))
+    main = (sidewalk_points(main_names[0], 3) if main_names else []) or sidewalk_points(None, 5)
+    second = sidewalk_points(main_names[1], 3) if len(main_names) > 1 else []
 
-    # 4~5) 남부순환로 동·서
-    for label, pick in (("남부순환로 동쪽", lambda a: a[0][0] > 110),
-                        ("남부순환로 서쪽", lambda a: a[0][0] < -110)):
-        cand = [a for a in cross if pick(a) and abs(a[0][1]) < 70]
-        if cand:
-            p, d, nm, w = min(cand, key=lambda a: abs(abs(a[0][0]) - 160))
-            add(label, (p[0], EYE, p[1]), (0, 8.0, 0))
+    def label(p, road_name):
+        """중심에서 어느 쪽인지 한국어로"""
+        x, z = p
+        if abs(z) >= abs(x):
+            side = "북쪽" if z < 0 else "남쪽"
+        else:
+            side = "동쪽" if x > 0 else "서쪽"
+        return f"{road_name} {side}"
 
-    # 6) 이면도로(골목)
-    alley = [a for a in sidewalk_points(None, 3) if math.hypot(a[0][0], a[0][1]) < 220 and a[3] < 12]
+    # 1) 중심 근처 보도.
+    #    중심 좌표 자체가 건물 안일 수 있다(역 건물 한가운데 등).
+    #    그때 '중심을 본다'고 하면 벽만 보이므로, 길 방향을 보게 한다.
+    center_pool = main or sidewalk_points(None, 3)
+    if center_pool:
+        far = [a for a in center_pool if math.hypot(a[0][0], a[0][1]) > 12]
+        pool2 = far or center_pool
+        p, d, nm, w = min(pool2, key=lambda a: math.hypot(a[0][0], a[0][1]))
+        origin_blocked = not free(0.0, 0.0, 0.5)
+        if origin_blocked:
+            look = (p[0] + d[0] * 70, 8.0, p[1] + d[1] * 70)
+        else:
+            look = (0, 4.0, 0)
+        add("중심", (p[0], EYE, p[1]), look)
+
+    # 2~5) 큰길 두 개를 따라 양쪽으로 떨어진 지점 → 중심 쪽을 본다
+    for pool, nm in ((main, main_names[0] if main_names else "큰길"),
+                     (second, main_names[1] if len(main_names) > 1 else None)):
+        if not pool or not nm:
+            continue
+        used = []
+        for want in (170, -170):
+            cand = [a for a in pool
+                    if (a[0][1] if abs(a[0][1]) >= abs(a[0][0]) else a[0][0]) * (1 if want > 0 else -1) > 60]
+            cand = [a for a in cand if all(math.hypot(a[0][0] - u[0], a[0][1] - u[1]) > 90 for u in used)]
+            if not cand:
+                continue
+            p, d, rn, w = min(cand, key=lambda a: abs(math.hypot(a[0][0], a[0][1]) - abs(want)))
+            used.append(p)
+            add(label(p, nm), (p[0], EYE, p[1]), (0, 8.0, 0))
+
+    # 6) 이면도로
+    alley = [a for a in sidewalk_points(None, 3)
+             if math.hypot(a[0][0], a[0][1]) < 220 and a[3] < 12]
     if alley:
         p, d, nm, w = alley[len(alley) // 2]
         add("이면도로", (p[0], EYE, p[1]), (p[0] + d[0] * 60, 6.0, p[1] + d[1] * 60))
@@ -735,15 +780,13 @@ def make_spots(buildings, roads, R):
         c, p, d = max(scand, key=lambda x: x[0])
         add("상가 거리", (p[0], EYE, p[1]), (p[0] + d[0] * 55, 7.0, p[1] + d[1] * 55))
 
-    # 7) 옥상 — 사거리 200m 안에서 가장 높은 건물 위
+    # 7) 옥상 — 중심 230m 안에서 가장 높은 건물 위
     tall = [b for b in buildings
             if math.hypot(*G.centroid([tuple(q) for q in b["poly"]])) < 230]
     if tall:
         b = max(tall, key=lambda x: x["h"])
         ring = [tuple(q) for q in b["poly"]]
         c = G.centroid(ring)
-        # 옥상 한가운데 서면 자기 지붕만 보인다.
-        # 사거리 쪽 난간 근처로 옮기고, 시선도 지평선 높이로 든다.
         edge = min(ring, key=lambda p: math.hypot(p[0], p[1]))
         dx, dz = c[0] - edge[0], c[1] - edge[1]
         L = math.hypot(dx, dz) or 1.0
@@ -755,13 +798,15 @@ def make_spots(buildings, roads, R):
     return spots
 
 # ─────────────────────────── 청크 분할·저장 ───────────────────────────
-def ckey(x, z, cs=CHUNK_SIZE_M):
+def ckey(x, z, cs=None):
+    cs = cs or CF.CHUNK_SIZE_M
     return (int(math.floor(x / cs)), int(math.floor(z / cs)))
 
 
-def split_segment_by_chunk(a, b, cs=CHUNK_SIZE_M):
+def split_segment_by_chunk(a, b, cs=None):
     """선분 a→b 를 청크 경계에서 잘라 [(key, p, q), ...] 로 돌려준다.
     중복 없이, 빈틈 없이 나눈다."""
+    cs = cs or CF.CHUNK_SIZE_M
     ts = {0.0, 1.0}
     for axis in (0, 1):
         a0, b0 = a[axis], b[axis]
@@ -787,8 +832,9 @@ def split_segment_by_chunk(a, b, cs=CHUNK_SIZE_M):
     return out
 
 
-def split_polyline_by_chunk(pts, cs=CHUNK_SIZE_M):
+def split_polyline_by_chunk(pts, cs=None):
     """폴리라인을 청크별 조각 목록으로. {key: [[pt,...], ...]}"""
+    cs = cs or CF.CHUNK_SIZE_M
     runs = defaultdict(list)
     cur_key, cur = None, []
     for i in range(len(pts) - 1):
@@ -844,10 +890,10 @@ def write_chunks(buildings, roads, footways, crossings, areas, props, R, spots=N
         chunks[ckey(p["x"], p["z"])]["props"].append(p)
 
     index = {
-        "origin": {"lat": ORIGIN_LAT, "lon": ORIGIN_LON},
-        "mPerDegLat": M_PER_DEG_LAT,
-        "mPerDegLon": M_PER_DEG_LON,
-        "chunkSize": CHUNK_SIZE_M,
+        "origin": {"lat": CF.ORIGIN_LAT, "lon": CF.ORIGIN_LON},
+        "mPerDegLat": CF.M_PER_DEG_LAT,
+        "mPerDegLon": CF.M_PER_DEG_LON,
+        "chunkSize": CF.CHUNK_SIZE_M,
         "builtRadius": R,
         "builtAt": time.strftime("%Y-%m-%d %H:%M:%S"),
         "attribution": "© OpenStreetMap contributors (ODbL)",
@@ -894,6 +940,24 @@ def write_chunks(buildings, roads, footways, crossings, areas, props, R, spots=N
     print(f"[저장] 청크 {written}개 / {size/1048576:.1f} MB → {CHUNK_DIR}")
     for k, v in sorted(index["totals"].items(), key=lambda x: -x[1]):
         print(f"       {k:16s} {v:,}")
+    return index
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--radius", type=int, default=None,
+                    help="청크를 만들 최대 반경(m). 기본=원본 반경 전체")
+    ap.add_argument("--no-fill", action="store_true", help="생성 건물 채우기 끄기")
+    ap.add_argument("--fill-density", type=float, default=1.0)
+    ap.add_argument("--raw", default=None, help="원본 osm_raw.json 경로")
+    ap.add_argument("--out", default=None, help="결과를 쓸 폴더(index.json + chunks/)")
+    ap.add_argument("--lat", type=float, default=None, help="중심 위도(주면 원점을 옮긴다)")
+    ap.add_argument("--lon", type=float, default=None, help="중심 경도")
+    args = ap.parse_args()
+    if args.lat is not None and args.lon is not None:
+        CF.set_origin(args.lat, args.lon)
+    build(raw_path=args.raw, out_dir=args.out, radius=args.radius,
+          fill=not args.no_fill, density=args.fill_density)
 
 
 if __name__ == "__main__":

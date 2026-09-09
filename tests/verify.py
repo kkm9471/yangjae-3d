@@ -17,8 +17,8 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import geom as G                                      # noqa: E402
-from config import (ORIGIN_LAT, ORIGIN_LON, CHUNK_SIZE_M,   # noqa: E402
-                    M_PER_DEG_LAT, M_PER_DEG_LON, to_local, to_latlon)
+import config as CF                       # noqa: E402
+from config import to_local, to_latlon    # noqa: E402
 
 FAIL = []
 WARN = []
@@ -37,18 +37,26 @@ def warn(name, cond, detail=""):
         OK.append(name)
 
 
-def main():
-    idx_path = os.path.join(ROOT, "web", "data", "index.json")
+def verify_place(place_dir, label=""):
+    global FAIL, WARN, OK
+    FAIL, WARN, OK = [], [], []
+    idx_path = os.path.join(place_dir, "index.json")
     if not os.path.exists(idx_path):
-        print("[중단] web/data/index.json 이 없습니다. 먼저 build_scene.py 를 돌리세요.")
+        print(f"[중단] {idx_path} 가 없습니다. 먼저 지도를 만드세요.")
         return 1
     with open(idx_path, encoding="utf-8") as f:
         idx = json.load(f)
 
+    # 이 동네의 원점으로 좌표계를 맞춘다(동네마다 다르다)
+    CF.set_origin(idx["origin"]["lat"], idx["origin"]["lon"])
+    ORIGIN_LAT, ORIGIN_LON = CF.ORIGIN_LAT, CF.ORIGIN_LON
+    M_PER_DEG_LAT, M_PER_DEG_LON = CF.M_PER_DEG_LAT, CF.M_PER_DEG_LON
+    CHUNK_SIZE_M = idx["chunkSize"]
+
     # ── 1. 좌표 변환 왕복 ──
     worst = 0.0
-    for la, lo in [(37.4845, 127.0341), (37.4930, 127.0430), (37.4760, 127.0250),
-                   (37.4845, 127.0250), (37.4760, 127.0430)]:
+    for dla, dlo in [(0.0, 0.0), (0.005, 0.009), (-0.008, -0.009), (0.005, -0.009), (-0.008, 0.009)]:
+        la, lo = ORIGIN_LAT + dla, ORIGIN_LON + dlo
         x, z = to_local(la, lo)
         la2, lo2 = to_latlon(x, z)
         d = math.hypot((la - la2) * M_PER_DEG_LAT, (lo - lo2) * M_PER_DEG_LON)
@@ -56,14 +64,12 @@ def main():
     check("좌표 왕복 오차 < 1mm", worst < 0.001, f"최대 {worst*1000:.4f}mm")
 
     # 파이썬과 자바스크립트가 같은 상수를 쓰는가
-    check("index.json 의 원점이 config.py 와 같다",
-          abs(idx["origin"]["lat"] - ORIGIN_LAT) < 1e-9 and abs(idx["origin"]["lon"] - ORIGIN_LON) < 1e-9)
-    check("index.json 의 1도당 거리가 config.py 와 같다",
+    check("index.json 의 1도당 거리가 원점 위도와 맞는다",
           abs(idx["mPerDegLat"] - M_PER_DEG_LAT) < 1e-6 and abs(idx["mPerDegLon"] - M_PER_DEG_LON) < 1e-6)
-    check("청크 크기 일치", idx["chunkSize"] == CHUNK_SIZE_M)
+    check("청크 크기가 양수", CHUNK_SIZE_M > 0)
 
     # ── 2. 청크 파일 목록이 index 와 정확히 일치 ──
-    cdir = os.path.join(ROOT, "web", "data", "chunks")
+    cdir = os.path.join(place_dir, "chunks")
     files = {os.path.basename(p)[:-5] for p in glob.glob(os.path.join(cdir, "*.json"))}
     listed = {f"{c['cx']}_{c['cz']}" for c in idx["chunks"]}
     check("index 에 적힌 청크가 모두 파일로 있다", listed <= files,
@@ -111,9 +117,12 @@ def main():
             if (int(math.floor(gx / CHUNK_SIZE_M)), int(math.floor(gz / CHUNK_SIZE_M))) != (cx, cz):
                 bad_chunk += 1
             # 붙은 상호가 정말 이 건물 근처인가 (엉뚱한 건물에 붙는 사고 방지)
+            # 큰 복합건물은 무게중심에서 외벽까지가 멀다. 고정 거리로 재면
+            # 멀쩡한 것도 걸리므로, 그 건물 자체의 크기를 기준으로 삼는다.
+            maxr = max(math.hypot(q[0] - gx, q[1] - gz) for q in poly)
             for p in b.get("pois", []):
                 npoi += 1
-                if math.hypot(p["dx"], p["dz"]) > 60:
+                if math.hypot(p["dx"], p["dz"]) > maxr + 32:
                     poi_far += 1
 
         for r in d.get("roads", []):
@@ -132,11 +141,11 @@ def main():
     check("청크 배정 정확", bad_chunk == 0, f"{bad_chunk}건")
     check("도로 속성 정상", bad_road == 0, f"{bad_road}건")
     check("건물 id 중복 없음", dup_ids == 0, f"{dup_ids}건")
-    check("상호가 붙은 건물에서 60m 이내", poi_far == 0, f"{poi_far}건")
+    check("상호가 그 건물 크기 + 32m 안에 붙어 있다", poi_far == 0, f"{poi_far}건")
 
     # ── 4. 도로를 청크로 자르면서 길이가 사라지지 않았는가 ──
     # (원본에서 다시 계산해 총 길이를 맞춰 본다)
-    raw_path = os.path.join(ROOT, "data", "raw", "osm_raw.json")
+    raw_path = os.path.join(ROOT, "data", "raw", os.path.basename(place_dir), "osm_raw.json")
     if os.path.exists(raw_path):
         sys.path.insert(0, os.path.join(ROOT, "tools"))
         import build_scene as BS
@@ -199,6 +208,8 @@ def main():
     # ── 6. 규모 ──
     heights.sort()
     print("\n" + "=" * 62)
+    if label:
+        print(f"  [{label}]")
     print(f"  건물 {nb:,}동 (OSM {nb-ngen:,} / 생성 {ngen:,})")
     print(f"  도로조각 {nroad:,} · 실제 상호 {npoi:,} · 청크 {len(listed)}")
     if heights:
@@ -216,6 +227,30 @@ def main():
         return 1
     print("  ✅ 데이터 검증 통과")
     return 0
+
+
+def main():
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--place", default=None, help="검사할 동네 slug (기본: 기본 동네)")
+    ap.add_argument("--all", action="store_true", help="만들어 둔 동네 전부 검사")
+    args = ap.parse_args()
+
+    places_json = os.path.join(ROOT, "web", "data", "places.json")
+    places = {"default": CF.DEFAULT_SLUG, "places": []}
+    if os.path.exists(places_json):
+        with open(places_json, encoding="utf-8") as f:
+            places = json.load(f)
+
+    if args.all:
+        rc = 0
+        for pl in places.get("places", []):
+            d = os.path.join(ROOT, "web", "data", "places", pl["slug"])
+            rc |= verify_place(d, pl["name"])
+        return rc
+    slug = args.place or places.get("default", CF.DEFAULT_SLUG)
+    name = next((p["name"] for p in places.get("places", []) if p["slug"] == slug), slug)
+    return verify_place(os.path.join(ROOT, "web", "data", "places", slug), name)
 
 
 if __name__ == "__main__":

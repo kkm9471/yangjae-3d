@@ -1,0 +1,29 @@
+{
+ "origin": {
+  "lat": 35.1637531,
+  "lon": 129.1587469
+ },
+ "radius_m": 1000,
+ "name": "해운대",
+ "counts": {
+  "total": 2721,
+  "node": 509,
+  "way": 2212,
+  "relation": 0,
+  "by_tag": {
+   "railway": 24,
+   "public_transport": 25,
+   "amenity": 250,
+   "shop": 59,
+   "leisure": 40,
+   "natural": 19,
+   "highway": 791,
+   "office": 3,
+   "building": 1398,
+   "landuse": 48,
+   "man_made": 1
+  }
+ },
+ "fetched_at": "2026-09-09 15:44:44",
+ "license": "© OpenStreetMap contributors (ODbL)"
+}
