@@ -20,6 +20,7 @@ import { buildSignMesh, atlas } from './build/signs.js';
 import { buildPeopleMesh } from './build/people.js';
 import { buildCarsMesh } from './build/cars.js';
 import { createSky } from './night/sky.js';
+import { applyTime, fmtHour, sunTimes } from './night/daycycle.js';
 import { CameraRig } from './controls/rig.js';
 
 const boot = document.getElementById('boot');
@@ -155,6 +156,12 @@ async function main() {
   }
   if (Q.has('r')) CFG.viewRadius = Number(Q.get('r'));
 
+  // ── 시각 ──
+  let hour = Q.has('hour') ? Number(Q.get('hour')) : 20.5;   // 기본은 밤 8시 반
+  let autoTime = false;
+  let litManual = false;
+  const HOURS_PER_SEC = 24 / 150;        // 자동 흐름: 하루가 2분 30초
+
   // ── HUD ──
   const el = id => document.getElementById(id);
   const bind = (id, fn) => { const e = el(id); if (e) e.onchange = () => fn(e); };
@@ -167,8 +174,17 @@ async function main() {
     CFG.viewRadius = Number(vd.value); el('vd-v').textContent = vd.value + ' m';
   };
   const lit = el('lit'); lit.oninput = () => {
+    litManual = true;
     U.uLitRatio.value = Number(lit.value) / 100; el('lit-v').textContent = lit.value + '%';
   };
+  const hrEl = el('hr');
+  hrEl.value = String(hour);
+  hrEl.oninput = () => { hour = Number(hrEl.value); litManual = false; };
+  el('t-auto').onchange = (e) => { autoTime = e.target.checked; };
+  {
+    const st = sunTimes();
+    el('sun-v').textContent = `${fmtHour(st.rise)} 뜸 · ${fmtHour(st.set)} 짐`;
+  }
 
   // 화면 크기·화각이 바뀌면 '한 화소가 몇 m인지'도 바뀐다
   function updatePixelScale() {
@@ -224,6 +240,16 @@ async function main() {
     requestAnimationFrame(tick);
     const dt = Math.min(0.05, clock.getDelta());
     U.uTime.value += dt;
+
+    // ── 시각 반영 ──
+    if (autoTime) {
+      hour = (hour + dt * HOURS_PER_SEC) % 24;
+      hrEl.value = String(hour.toFixed(2));
+    }
+    const sky = applyTime(hour, U, bloom, renderer, { litManual });
+    el('hr-v').textContent = fmtHour(hour);
+    if (!litManual) el('lit').value = String(Math.round(U.uLitRatio.value * 100));
+    el('lit-v').textContent = Math.round(U.uLitRatio.value * 100) + '%';
 
     if (TOUR) {
       tourT += dt;

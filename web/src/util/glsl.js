@@ -21,8 +21,11 @@ export const SCENE_PARS = /* glsl */`
 uniform float uTime;
 uniform vec3  uFogColor;
 uniform float uFogDensity;
-uniform vec3  uMoonDir, uMoonColor, uAmbSky, uAmbGround;
+uniform vec3  uSunDir, uSunColor, uAmbSky, uAmbGround;
 uniform vec3  uCityGlow;
+uniform float uArtificial;   // 인공조명 세기 (밤 1, 낮 0)
+uniform float uDayLight;     // 햇빛 밝기 (밤 0, 한낮 1)
+uniform vec3  uSkyTop, uSkyHorizon;
 varying vec3  vWorld;
 `;
 
@@ -33,9 +36,9 @@ export const SHADE = /* glsl */`
 vec3 shadeNight(vec3 N, vec3 base){
   float up = N.y*0.5+0.5;
   vec3 amb = mix(uAmbGround, uAmbSky, up);
-  float d  = max(dot(N, normalize(uMoonDir)), 0.0);
+  float d  = max(dot(N, normalize(uSunDir)), 0.0);
   float horizonBounce = pow(1.0 - abs(N.y), 3.0) * 0.55;
-  return base * (amb + uMoonColor*d + uCityGlow*horizonBounce*0.20);
+  return base * (amb + uSunColor*d + uCityGlow*horizonBounce*0.20);
 }
 `;
 
@@ -68,8 +71,15 @@ export function makeSceneUniforms(THREE, CFG) {
     uTime:       { value: 0 },
     uFogColor:   { value: v3(CFG.fogColor) },
     uFogDensity: { value: CFG.fogDensity },
-    uMoonDir:    { value: v3(CFG.moonDir).normalize() },
-    uMoonColor:  { value: v3(CFG.moonColor) },
+    uSunDir:    { value: v3(CFG.moonDir).normalize() },
+    uSunColor:  { value: v3(CFG.moonColor) },
+    uArtificial: { value: 1 },
+    uDayLight:  { value: 0 },
+    uSkyTop:    { value: v3(CFG.skyTop) },
+    uSkyHorizon:{ value: v3(CFG.skyHorizon) },
+    uDisk:      { value: v3([1.6, 1.7, 2.0]) },
+    uDiskSize:  { value: 0.99975 },
+    uStars:     { value: 1 },
     uAmbSky:     { value: v3(CFG.ambSky) },
     uAmbGround:  { value: v3(CFG.ambGround) },
     uCityGlow:   { value: v3(CFG.cityGlow) },

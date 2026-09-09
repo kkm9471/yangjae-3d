@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>양재역 야경 3D</title>
+<title>양재역 3D · 하루</title>
 <link rel="icon" href="data:,">   <!-- 아이콘 파일을 쓰지 않는다(이미지 0개 유지) -->
 <style>
   html,body{margin:0;height:100%;background:#05070c;color:#dfe6f2;
@@ -44,7 +44,7 @@
 <div id="attr">건물·도로 데이터 © OpenStreetMap contributors (ODbL)</div>
 
 <div id="hud">
-  <h1>양재역 사거리 · 야경</h1>
+  <h1>양재역 사거리 · 24시간</h1>
   <div class="row"><span class="k">FPS</span><span class="v" id="fps">–</span></div>
   <div class="row"><span class="k">위치</span><span class="v" id="pos">–</span></div>
   <div class="row"><span class="k">위경도</span><span class="v" id="ll">–</span></div>
@@ -69,6 +69,13 @@
   <label><input type="checkbox" id="t-people" checked> 사람</label>
   <label><input type="checkbox" id="t-car" checked> 차량</label>
   <label><input type="checkbox" id="t-bloom" checked> 빛 번짐(블룸)</label>
+  <hr>
+  <div class="row"><span class="k">시각</span><span class="v" id="hr-v">20:30</span></div>
+  <input type="range" id="hr" min="0" max="24" step="0.25" value="20.5">
+  <div class="row" style="margin-top:2px">
+    <label style="margin:0"><input type="checkbox" id="t-auto"> 시간 자동으로 흐르기</label>
+  </div>
+  <div class="row"><span class="k">해</span><span class="v" id="sun-v">–</span></div>
   <hr>
   <div class="row"><span class="k">보이는 거리</span><span class="v" id="vd-v">300 m</span></div>
   <input type="range" id="vd" min="150" max="1000" step="50" value="300">
