@@ -204,6 +204,18 @@ async function main() {
     qEl.onkeydown = (e) => { if (e.key === 'Enter') go(); };
   }
 
+  // 인터넷에 올려 둔 판에는 새 동네를 만드는 파이썬이 없다.
+  // 검색창을 멀쩡히 두면 눌러 보고서야 안 된다는 걸 알게 되므로, 아예 치운다.
+  function setStaticHosting() {
+    const row = document.getElementById('qrow');
+    if (row) row.style.display = 'none';
+    const m = document.getElementById('qmsg');
+    if (m) {
+      m.classList.remove('err');
+      m.textContent = '동네는 위에서 고르세요. 새 동네 추가는 만든 사람이 합니다.';
+    }
+  }
+
   // ── 패널 접기 (걸어 다닐 때 화면을 가리지 않게) ──
   const titleEl = document.getElementById('hudtitle');
   titleEl.firstChild.textContent = ((placeRec && placeRec.name) || '양재역 사거리') + ' · 24시간 ';
@@ -368,9 +380,19 @@ async function main() {
   // ── 서버에게 "아직 보고 있다" 신호 ──
   // 이 신호가 3분간 끊기면 서버가 스스로 꺼진다.
   // (창 없이 띄우기 때문에, 안 그러면 보이지 않는 서버가 계속 살아남는다)
-  const ping = () => fetch('./__ping', { cache: 'no-store' }).catch(() => {});
-  ping();
-  setInterval(ping, 20000);
+  //
+  // 인터넷에 올려 둔 판에는 그 파이썬 서버가 없다. 첫 신호가 실패하면
+  // 그쪽이라고 보고 더 보내지 않는다. 안 그러면 20초마다 콘솔에 오류가 쌓이고,
+  // 새 동네를 만들 수 없는데도 검색창은 멀쩡해 보여서 눌러 봐야 알게 된다.
+  let heartbeat = null;
+  // ★ fetch 는 404 여도 '성공'으로 끝난다. 상태를 직접 보지 않으면
+  //   GitHub Pages 가 돌려주는 404 를 "서버 살아 있음"으로 잘못 읽는다.
+  const ping = () => fetch('./__ping', { cache: 'no-store' })
+    .then(r => { if (!r.ok) throw new Error('http ' + r.status); return r; });
+  ping().then(
+    () => { heartbeat = setInterval(() => ping().catch(() => {}), 20000); },
+    () => setStaticHosting(),
+  );
 
   const COMPASS = ['북', '북동', '동', '남동', '남', '남서', '서', '북서'];
   const dirTmp = new THREE.Vector3();
