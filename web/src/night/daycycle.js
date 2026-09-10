@@ -135,7 +135,11 @@ export function applyTime(hour, U, bloomPass, renderer, opts = {}) {
   U.uAmbGround.value.set(p.ambGround[0], p.ambGround[1], p.ambGround[2]);
   U.uCityGlow.value.set(p.glow[0], p.glow[1], p.glow[2]);
   U.uFogColor.value.set(p.fog[0], p.fog[1], p.fog[2]);
-  U.uFogDensity.value = p.fogDensity;
+  // ★ 안개 밀도는 시각마다 갈아 끼우지만, 넓은 지역(섬·시 단위)에서는
+  //   그 값이 통째로 너무 진하다. 낮 팔레트 0.00105 면 3km 에서 이미 100% 다.
+  //   그래서 지형 쪽에서 정한 배율(U.uFogScale)을 곱한다.
+  //   이걸 안 하면 밖에서 얼마를 설정해도 여기서 매 프레임 되돌려 버린다(실제로 그랬다).
+  U.uFogDensity.value = p.fogDensity * (U.uFogScale ? U.uFogScale.value : 1);
   U.uArtificial.value = p.artificial;
   U.uDayLight.value = p.dayLight;
   U.uSkyTop.value.set(p.skyTop[0], p.skyTop[1], p.skyTop[2]);

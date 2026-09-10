@@ -109,6 +109,8 @@ async function main() {
     if (need) {
       camera.far = need.far;
       camera.updateProjectionMatrix();
+      // 시각이 바뀔 때마다 daycycle 이 안개를 다시 칠하므로, 값이 아니라 '배율'로 준다
+      U.uFogScale = { value: need.fog / 0.00105 };
       CFG.fogDensity = need.fog;
       U.uFogDensity.value = need.fog;
       console.log(`[지형] 넓은 지역 → 시야 ${(need.far/1000).toFixed(0)}km`

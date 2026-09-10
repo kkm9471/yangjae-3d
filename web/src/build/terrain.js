@@ -147,8 +147,14 @@ export class Terrain {
       const vn = n + 1;
       const pos = new Float32Array(vn * vn * 3);
       const idx = [];
-      // 1단계부터는 가운데를 비운다(더 촘촘한 단계가 거기를 그린다)
-      const hole = li === 0 ? -1 : lv.half / 2;
+      // 1단계부터는 가운데를 비운다(더 촘촘한 단계가 거기를 그린다).
+      //
+      // ★ 비우는 크기는 '바로 앞 단계가 실제로 덮는 범위'와 정확히 같아야 한다.
+      //   처음에 half/2 로 뒀더니 앞 단계가 덮는 2,040m 보다 훨씬 넓은 4,080m 를
+      //   비워서, 그 사이 고리 모양으로 아무것도 안 그려지는 구멍이 생겼다.
+      //   그 구멍으로 바다 평면이 비쳐서 온 화면이 뿌옇게 보였다.
+      const prev = li === 0 ? null : this.levels[li - 1];
+      const hole = prev ? (prev.half * prev.step) / lv.step : -1;
       for (let j = 0; j < n; j++) {
         for (let i = 0; i < n; i++) {
           const ci = i - lv.half + 0.5, cj = j - lv.half + 0.5;

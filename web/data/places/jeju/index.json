@@ -8,9 +8,19 @@
  "mPerDegLat": 110910.85728392296,
  "mPerDegLon": 93071.93025187589,
  "chunkSize": 100,
- "radius": 45000,
+ "builtRadius": 45000,
+ "attribution": "지형: AWS terrarium (SRTM/ASTER 등)",
  "chunks": [
-  "0_0"
+  {
+   "cx": 0,
+   "cz": 0,
+   "b": 0,
+   "r": 0,
+   "f": 0,
+   "x": 0,
+   "a": 0,
+   "p": 0
+  }
  ],
  "spots": [
   {
@@ -130,5 +140,6 @@
   "buildings": 0,
   "roads": 0
  },
+ "terrainOnly": true,
  "note": "지형만 있는 판. 건물·도로는 아직 없음."
 }

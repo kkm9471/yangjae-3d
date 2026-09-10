@@ -103,3 +103,6 @@ data/heights/_daejang_*.json
 # 실시간 서버 의존성
 server/node_modules/
 server/.wrangler/
+
+# 지형 타일 원본(만들 때만 쓰고 버린다). 결과인 web/data/dem/ 은 커밋한다.
+data/dem_tiles/
