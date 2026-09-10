@@ -15,7 +15,10 @@ import path from 'node:path';
 const CHROME = process.env.CHROME_PATH ||
   'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const PORT = process.env.PORT || 8765;
-const WS = process.env.WS || 'ws://127.0.0.1:8788/ws';
+const WS = process.env.WS === '' ? '' : (process.env.WS || 'ws://127.0.0.1:8788/ws');
+const BASE = process.env.BASE || `http://127.0.0.1:${PORT}`;
+// WS 를 빈 값으로 주면 ?ws= 를 안 붙인다 → 화면이 data/net.json 을 읽는
+// 진짜 경로로 시험하게 된다(올려 둔 판을 검사할 때 이게 중요하다).
 const OUT = path.resolve('tests/shots');
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -52,14 +55,14 @@ async function open(name, place) {
   }, name);
   const errs = [];
   page.on('pageerror', e => errs.push(e.message));
-  const url = `http://127.0.0.1:${PORT}/index.html?shot=1&spot=0&hour=20`
-    + `&place=${place}&ws=${encodeURIComponent(WS)}`;
+  const url = `${BASE}/index.html?shot=1&spot=0&hour=20&place=${place}`
+    + (WS ? `&ws=${encodeURIComponent(WS)}` : '');
   await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
   for (let i = 0; i < 60 && !(await page.evaluate(() => !!window.__ready)); i++) await sleep(500);
   return { name, page, errs };
 }
 
-console.log('지도:', `http://127.0.0.1:${PORT}`, ' 실시간:', WS);
+console.log('지도:', BASE, ' 실시간:', WS || '(data/net.json 에 적힌 것)');
 const A = await open('가나', 'yangjae');
 const B = await open('나다', 'yangjae');
 // 둘 다 걷기 모드로. 둘러보기 모드에서는 OrbitControls 가 카메라를 제 자리로 되돌려서
