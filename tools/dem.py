@@ -35,7 +35,9 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 import config as CF          # noqa: E402
 
 TILE_URL = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
-UA = {"User-Agent": "yangjae-3d/1.0 (하나의 개인 프로젝트)"}
+# ★ HTTP 헤더는 latin-1 로만 보낼 수 있다. 한글을 넣으면 요청이 아예 안 나간다
+#   ('latin-1' codec can't encode characters). 실제로 여기서 한 번 막혔다.
+UA = {"User-Agent": "yangjae-3d/1.0 (personal hobby project)"}
 OUT_DIR = os.path.join(ROOT, "web", "data", "dem")
 CACHE_DIR = os.path.join(ROOT, "data", "dem_tiles")
 
@@ -210,6 +212,14 @@ def build(lat, lon, half_x, half_z, step, z, slug, name, say=print):
             struct.pack_into("<h", heights, (j * nx + i) * 2, v)
         if (j + 1) % max(1, nz // 12) == 0:
             say(f"   {j+1}/{nz} 줄 ({(j+1)*100//nz}%) · {time.time()-t0:.0f}초")
+
+    # ★ 못 받은 점은 바다(0m)로 채워진다. 그러니 많이 실패하면 '전부 평평한 판'이
+    #   멀쩡한 결과처럼 저장된다. 그건 안 만드는 것보다 나쁘다 — 틀린 걸 모르니까.
+    if miss > total * 0.02:
+        raise SystemExit(
+            f"[중단] {miss:,}/{total:,}점({miss*100/total:.0f}%)을 못 받았습니다.\n"
+            f"        이대로 저장하면 그 자리가 전부 바다(0m)가 됩니다.\n"
+            f"        위의 '타일 … 실패' 메시지를 보고 원인을 먼저 고치세요.")
 
     os.makedirs(OUT_DIR, exist_ok=True)
     bin_path = os.path.join(OUT_DIR, f"{slug}.bin")

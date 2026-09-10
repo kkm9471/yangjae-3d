@@ -1,0 +1,18 @@
+{
+ "slug": "yangjae",
+ "name": "양재역 사거리",
+ "lat": 37.48453,
+ "lon": 127.034087,
+ "halfX": 1000.0,
+ "halfZ": 1000.0,
+ "step": 8.0,
+ "nx": 251,
+ "nz": 251,
+ "unit": 0.1,
+ "min": -0.7,
+ "max": 127.9,
+ "seaLevel": 0.0,
+ "source": "AWS terrarium (SRTM/ASTER 등)",
+ "zoom": 14,
+ "madeAt": "2026-09-10 10:56:08"
+}
