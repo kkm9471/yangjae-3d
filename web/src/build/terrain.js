@@ -84,10 +84,12 @@ export class Terrain {
     const fz = (z + m.halfZ) / m.step;
     const i = Math.floor(fx), j = Math.floor(fz);
     if (i < 0 || j < 0 || i >= m.nx - 1 || j >= m.nz - 1) {
-      // 밖은 바다로 본다. 섬 바깥이 절벽처럼 솟아 있으면 이상하다.
+      // ★ 데이터 밖은 '가장자리 높이를 그대로 이어간다'.
+      //   여기서 바다(0m)를 돌려주면, 데이터가 좁은 동네는 사방이 바다가 되어
+      //   양재가 바다 한가운데 뜬 섬처럼 보인다(실제로 그렇게 나왔다).
+      //   제주처럼 가장자리가 진짜 바다인 데이터는 이어가기만 해도 바다가 된다.
       const ci = Math.max(0, Math.min(m.nx - 1, i));
       const cj = Math.max(0, Math.min(m.nz - 1, j));
-      if (i < -2 || j < -2 || i > m.nx + 1 || j > m.nz + 1) return m.seaLevel || 0;
       return this.h[cj * m.nx + ci] * this.unit;
     }
     const tx = fx - i, tz = fz - j;
@@ -145,14 +147,18 @@ export class Terrain {
       this.lastAt.push(null);
     }
 
-    // 바다. 섬이니까 이게 없으면 가장자리 밖이 무한한 회색 평면이 된다.
-    const sg = new THREE.PlaneGeometry(400000, 400000, 1, 1);
-    sg.rotateX(-Math.PI / 2);
-    this.sea = new THREE.Mesh(sg, seaMaterial(this.uniforms));
-    this.sea.position.y = this.seaY;
-    this.sea.renderOrder = -20;
-    this.sea.frustumCulled = false;
-    this._group.add(this.sea);
+    // 바다. 단, 그 지역에 실제로 바다가 있을 때만 깐다.
+    // 내륙 동네(양재·진주 시내)에 바다를 깔면 낮은 땅이 물에 잠긴 것처럼 보인다.
+    this.hasSea = (this.meta.min ?? 0) <= (this.meta.seaLevel || 0) + 1.0;
+    if (this.hasSea) {
+      const sg = new THREE.PlaneGeometry(400000, 400000, 1, 1);
+      sg.rotateX(-Math.PI / 2);
+      this.sea = new THREE.Mesh(sg, seaMaterial(this.uniforms));
+      this.sea.position.y = this.seaY;
+      this.sea.renderOrder = -20;
+      this.sea.frustumCulled = false;
+      this._group.add(this.sea);
+    }
   }
 
   /** 매 프레임. 카메라가 충분히 움직였을 때만 그 단계를 다시 만든다. */
@@ -171,7 +177,7 @@ export class Terrain {
       this.lastAt[li] = [ox, oz];
       this._fill(M, ox, oz);
     }
-    this.sea.position.set(cx, this.seaY, cz);
+    if (this.sea) this.sea.position.set(cx, this.seaY, cz);
   }
 
   _fill(M, ox, oz) {
