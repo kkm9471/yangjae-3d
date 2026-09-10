@@ -96,8 +96,6 @@ async function main() {
   U.uFloorH = { value: CFG.floorH };
   U.uGroundFloorH = { value: CFG.groundFloorH };
 
-  scene.add(createSky(U));
-
   // ── 지형 ──
   // data/dem/<slug>.bin 이 있으면 산과 바다가 생긴다. 없으면 예전처럼 평평한 판.
   // 지형이 있으면 평평한 판은 안 깐다 — 두 개가 겹치면 지평선에서 서로 뚫고 나온다.
@@ -105,9 +103,24 @@ async function main() {
   const hasTerrain = await terrain.load('./data', slug);
   if (hasTerrain) {
     U.uSeaOffset.value = terrain.base;      // 화면 y=0 이 해발 몇 m인지
+    // 섬·시 단위로 넓으면 카메라 시야와 안개를 그 규모에 맞춘다.
+    // ★ 기본 시야는 6km 라서 31km 짜리 지형은 통째로 잘려 나간다(실제로 그랬다).
+    const need = terrain.viewNeeds;
+    if (need) {
+      camera.far = need.far;
+      camera.updateProjectionMatrix();
+      CFG.fogDensity = need.fog;
+      U.uFogDensity.value = need.fog;
+      console.log(`[지형] 넓은 지역 → 시야 ${(need.far/1000).toFixed(0)}km`
+        + ` · 안개 ${need.fog.toExponential(1)}`);
+    }
+    // 하늘 돔은 시야보다 조금 안쪽에 둔다(밖에 있으면 잘려 나간다)
+    scene.add(createSky(U, camera.far * 0.92));
     console.log(`[지형] ${terrain.meta.name} · ${terrain.meta.nx}x${terrain.meta.nz}`
       + ` · ${terrain.meta.step}m 간격 · 해발 ${terrain.meta.min}~${terrain.meta.max}m`);
+    if (!terrain.viewNeeds) scene.add(createSky(U));
   } else {
+    scene.add(createSky(U));
     scene.add(createBaseGround(U, 24000));
   }
 

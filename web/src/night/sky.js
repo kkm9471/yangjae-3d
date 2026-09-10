@@ -4,8 +4,11 @@
 import * as THREE from 'three';
 import { COMMON } from '../util/glsl.js';
 
-export function createSky(uniforms) {
-  const g = new THREE.SphereGeometry(4000, 40, 24);
+// radius: 하늘 돔의 크기(m). 이 안쪽에 있어야 하늘이 보인다.
+// ★ 4km 로 고정해 뒀더니, 제주도를 30km 상공에서 내려다볼 때 카메라가 돔 밖으로
+//   나가 하늘이 통째로 검게 나왔다. 지역 크기에 맞춰 키우고 카메라를 따라다니게 한다.
+export function createSky(uniforms, radius = 4000) {
+  const g = new THREE.SphereGeometry(radius, 40, 24);
   const m = new THREE.ShaderMaterial({
     uniforms,
     vertexShader: /* glsl */`
@@ -71,5 +74,8 @@ export function createSky(uniforms) {
   const mesh = new THREE.Mesh(g, m);
   mesh.frustumCulled = false;
   mesh.renderOrder = -100;
+  mesh.frustumCulled = false;
+  // 하늘은 늘 카메라를 감싸고 있어야 한다
+  mesh.onBeforeRender = (r, sc, cam) => mesh.position.copy(cam.position);
   return mesh;
 }

@@ -67,9 +67,14 @@ export class Terrain {
     }
     this.meta = meta;
     this.unit = meta.unit || 0.1;
-    // 원점(화면 좌표 0,0)의 높이를 빼서 기준을 맞춘다.
-    // 이걸 안 하면 양재(해발 34m)에서 이미 지어 둔 건물들이 땅에 파묻힌다.
-    this.base = this._raw(0, 0);
+    // 화면의 y=0 을 해발 몇 m 로 볼 것인가.
+    //   바다가 있는 지역  → 해수면. 그래야 한라산이 1,935m 로 서고 바다가 0 이 된다.
+    //   내륙 지역        → 원점의 높이. 안 그러면 양재(해발 34m)에 이미 지어 둔
+    //                     건물들이 통째로 땅에 파묻힌다.
+    // ★ 제주 원점을 한라산 근처로 잡았더니 기준이 1,590m 가 되어 섬 전체가
+    //   y=0 아래로 가라앉았다. 그래서 이 구분이 필요하다.
+    this.hasSea = (meta.seaFrac ?? 0) > 0.01;
+    this.base = this.hasSea ? (meta.seaLevel || 0) : this._raw(0, 0);
     this.levels = LEVELS.map(l => ({ step: l.step * meta.step, half: l.half }));
     this._build();
     this.ready = true;
@@ -112,6 +117,18 @@ export class Terrain {
     return this._raw(x, z) <= (this.meta.seaLevel || 0) + 0.5;
   }
 
+  /** 이 지역을 보려면 필요한 시야 거리(m)와 안개 밀도 */
+  get viewNeeds() {
+    if (!this.ready) return null;
+    const span = Math.min(this.meta.halfX, this.meta.halfZ) * 2;
+    if (span < 10000) return null;          // 동네 규모면 예전 설정 그대로
+    return {
+      far: Math.min(160000, Math.max(6000, span * 1.8)),
+      // 30km 밖 한라산이 보여야 한다. 1km 동네용 안개(0.00165)면 2km 에서 이미 다 묻힌다.
+      fog: Math.max(6e-6, 0.9 / span),
+    };
+  }
+
   /** 바다 높이(화면 좌표계) */
   get seaY() {
     return this.ready ? (this.meta.seaLevel || 0) - this.base : -1e9;
@@ -149,7 +166,7 @@ export class Terrain {
 
     // 바다. 단, 그 지역에 실제로 바다가 있을 때만 깐다.
     // 내륙 동네(양재·진주 시내)에 바다를 깔면 낮은 땅이 물에 잠긴 것처럼 보인다.
-    this.hasSea = (this.meta.min ?? 0) <= (this.meta.seaLevel || 0) + 1.0;
+    // (hasSea 는 load() 에서 정한다 — 해수면 이하 면적 비율로 본다. 양재 0.0% / 제주 64.2%)
     if (this.hasSea) {
       const sg = new THREE.PlaneGeometry(400000, 400000, 1, 1);
       sg.rotateX(-Math.PI / 2);

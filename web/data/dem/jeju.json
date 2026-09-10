@@ -12,7 +12,8 @@
  "min": -94.0,
  "max": 1935.0,
  "seaLevel": 0.0,
+ "seaFrac": 0.64231,
  "source": "AWS terrarium (SRTM/ASTER 등)",
  "zoom": 12,
- "madeAt": "2026-09-10 10:58:15"
+ "madeAt": "2026-09-10 11:02:35"
 }

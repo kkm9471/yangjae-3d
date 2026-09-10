@@ -195,7 +195,7 @@ def build(lat, lon, half_x, half_z, step, z, slug, name, say=print):
     say(f"   받아야 할 지형타일 약 {ntile}장 (한 장 42KB · 이미 받은 건 다시 안 받음)")
 
     heights = bytearray(total * 2)
-    lo_v, hi_v, miss = 1e9, -1e9, 0
+    lo_v, hi_v, miss, nsea = 1e9, -1e9, 0, 0
     t0 = time.time()
     for j in range(nz):
         zz = -half_z + j * step
@@ -207,6 +207,8 @@ def build(lat, lon, half_x, half_z, step, z, slug, name, say=print):
                 e = SEA_LEVEL
                 miss += 1
             lo_v = min(lo_v, e); hi_v = max(hi_v, e)
+            if e <= SEA_LEVEL:
+                nsea += 1
             # 데시미터(0.1m) 단위 int16. -3276.8m ~ 3276.7m 까지 담긴다.
             v = int(round(max(-3276.0, min(3276.0, e)) * 10))
             struct.pack_into("<h", heights, (j * nx + i) * 2, v)
@@ -236,6 +238,9 @@ def build(lat, lon, half_x, half_z, step, z, slug, name, say=print):
         "unit": 0.1,                  # 저장값 x 0.1 = 미터
         "min": round(lo_v, 1), "max": round(hi_v, 1),
         "seaLevel": SEA_LEVEL,
+        # 해수면 이하인 점의 비율. 이걸로 '바다를 깔 지역인가'를 정한다.
+        # 최저 높이만 보면 안 된다 — 내륙에도 데이터 잡음으로 -0.7m 같은 점이 나온다.
+        "seaFrac": round(nsea / max(1, total), 5),
         "source": "AWS terrarium (SRTM/ASTER 등)", "zoom": z,
         "madeAt": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
@@ -246,7 +251,8 @@ def build(lat, lon, half_x, half_z, step, z, slug, name, say=print):
     os.replace(tmp, meta_path)
 
     say(f"[저장] {bin_path}  ({len(heights)/1024/1024:.1f}MB)")
-    say(f"       높이 {lo_v:.0f}m ~ {hi_v:.0f}m" + (f" · 못 받은 점 {miss:,}개" if miss else ""))
+    say(f"       높이 {lo_v:.0f}m ~ {hi_v:.0f}m · 바다 {nsea/max(1,total)*100:.1f}%"
+        + (f" · 못 받은 점 {miss:,}개" if miss else ""))
     return meta
 
 
