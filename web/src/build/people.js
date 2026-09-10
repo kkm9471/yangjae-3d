@@ -11,7 +11,8 @@ import { h32, rnd } from '../util/rand.js';
 import { offsetPolyline } from './roads.js';
 
 // 사람 하나의 저폴리 형태 (몸통·머리·다리 2개)
-function personGeometry() {
+// 같이 접속한 사람의 아바타도 같은 모양을 쓴다(build/avatars.js) — 군중과 따로 놀면 어색하다
+export function personGeometry() {
   const pos = [], nrm = [], part = [];
   let idx = [], v = 0;
   const box = (x, y, z, w, h, d, p) => {

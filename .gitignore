@@ -99,3 +99,7 @@ data/heights/_daejang_*.json
 
 # data/heights/<slug>.json (실측 높이 결과)은 일부러 커밋한다.
 #   키가 들어 있지 않고, 없으면 다시 만들 때 도시가 조용히 추정값으로 되돌아간다.
+
+# 실시간 서버 의존성
+server/node_modules/
+server/.wrangler/

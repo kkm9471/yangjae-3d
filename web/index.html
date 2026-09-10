@@ -73,6 +73,23 @@
     text-align:center;font-size:15px;color:#dfe9f7;pointer-events:none;line-height:1.7}
   #lockhint small{color:#8794a8;font-size:12px}
 
+  /* ── 같이 접속한 사람 ── */
+  #nickrow{margin:5px 0}
+  #nickrow input{width:100%}
+  #people{display:flex;flex-direction:column;gap:3px}
+  #people .p{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#b9c6db}
+  #people .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+  #people .nm{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #people .at{color:#7d8ba3;font-size:10.5px}
+  #people .me .nm{color:#8fd3ff}
+  #people button{background:#152033;border:1px solid #26364f;color:#cfe0f5;border-radius:4px;
+    font-size:10.5px;padding:1px 6px;cursor:pointer;font-family:inherit;flex:0 0 auto}
+  #people .none{color:#5d6e88;font-size:11px}
+  /* 같은 동네에 누가 있으면 어느 쪽에 있는지 알려 준다 */
+  #near{position:fixed;left:50%;top:calc(50% - 46px);transform:translateX(-50%);z-index:9;
+    font-size:12px;color:#ffe6a8;text-shadow:0 1px 3px #000;pointer-events:none;display:none;
+    background:rgba(8,14,24,.5);padding:3px 10px;border-radius:5px;white-space:nowrap}
+
   /* ── 손가락으로 쓰는 기기 (body.touch 는 main.js 가 붙인다) ── */
   /* 오른쪽 위젯들이 터치를 먹으면 그 위에서는 화면을 못 돌린다 → 손가락이 통과하게 한다 */
   body.touch #help{display:none}
@@ -133,6 +150,14 @@
   <hr>
   <div class="k" style="margin-bottom:3px">명소로 가기</div>
   <div id="spots" class="btns" style="flex-wrap:wrap"></div>
+
+  <!-- 같이 접속한 사람. 서버가 없으면(혼자 모드) 통째로 숨긴다. -->
+  <div id="netbox" style="display:none">
+    <hr>
+    <div class="row"><span class="k">같이 있는 사람</span><span class="v" id="net-state">–</span></div>
+    <div id="nickrow"><input id="nick" type="text" maxlength="12" placeholder="내 이름"></div>
+    <div id="people"></div>
+  </div>
   <hr>
   <label><input type="checkbox" id="t-gen" checked> 생성 건물 보이기</label>
   <label><input type="checkbox" id="t-sign" checked> 간판</label>
@@ -160,6 +185,7 @@
   <canvas id="minimap" width="168" height="168"></canvas>
   <div id="navtxt"><b id="road-v">–</b><span id="dir-v">–</span></div>
 </div>
+<div id="near"></div>
 <div id="look"><span id="look-v"></span></div>
 <div id="cross"></div>
 <div id="lockhint">화면을 클릭하면 걷기 시작<br><small>W A S D 이동 · Shift 달리기 · ESC 로 빠져나오기</small></div>

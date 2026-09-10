@@ -23,6 +23,8 @@ import { createSky } from './night/sky.js';
 import { applyTime, fmtHour, sunTimes } from './night/daycycle.js';
 import { CameraRig } from './controls/rig.js';
 import { TouchControls, isTouchDevice } from './controls/touch.js';
+import { Multiplayer, netUrl } from './net/multiplayer.js';
+import { Avatars } from './build/avatars.js';
 import { Minimap } from './ui/minimap.js';
 import { Foley } from './audio/foley.js';
 
@@ -398,6 +400,81 @@ async function main() {
   const dirTmp = new THREE.Vector3();
   let navAcc = 0;
 
+  // ── 같이 돌아다니기 ──
+  // 서버 주소가 없으면(data/net.json 이 없거나 비어 있으면) 이 기능은 통째로 꺼진다.
+  // 지도는 정적 파일이라 서버 없이도 완전히 돌아간다 — 여기 없는 건 '남'뿐이다.
+  const avatars = new Avatars(scene, camera, U);
+  const NAME_KEY = 'yangjae3d.name';
+  let myName = '';
+  try { myName = localStorage.getItem(NAME_KEY) || ''; } catch { /* 사생활 보호 모드 */ }
+  if (!myName) myName = '손님' + Math.floor(Math.random() * 900 + 100);
+
+  const net = new Multiplayer({
+    url: await netUrl(Q),
+    name: myName,
+    slug,
+    onPeople: renderPeople,
+    onStatus: s => { el('net-state').textContent = s; },
+  });
+
+  if (net.enabled) {
+    document.getElementById('netbox').style.display = '';
+    const nick = el('nick');
+    nick.value = myName;
+    const applyName = () => {
+      const v = nick.value.trim().slice(0, 12) || '손님';
+      nick.value = v;
+      myName = v;
+      try { localStorage.setItem(NAME_KEY, v); } catch { /* */ }
+      net.setName(v);
+    };
+    nick.onchange = applyName;
+    nick.onblur = applyName;
+    // 이름을 치는 동안 W·A·S·D 가 걷기로 새어 나가면 안 된다
+    nick.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') nick.blur(); };
+    net.connect();
+    addEventListener('beforeunload', () => net.close());
+  }
+
+  const PLACE_NAME = {};
+  for (const p of (places.places || [])) PLACE_NAME[p.slug] = p.name;
+
+  /** 접속자 목록을 그린다. 이름은 남이 지은 것이라 textContent 로만 넣는다. */
+  function renderPeople(list) {
+    const box = el('people');
+    box.textContent = '';
+    const others = list.filter(p => p.id !== net.myId);
+    if (!others.length) {
+      const d = document.createElement('div');
+      d.className = 'none';
+      d.textContent = '아직 아무도 없습니다.';
+      box.appendChild(d);
+      return;
+    }
+    for (const p of others) {
+      const row = document.createElement('div');
+      row.className = 'p';
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      const same = p.slug === slug;
+      dot.style.background = same ? '#5fd08a' : '#5d6e88';
+      const nm = document.createElement('span');
+      nm.className = 'nm';
+      nm.textContent = p.name;                       // ★ innerHTML 금지
+      const at = document.createElement('span');
+      at.className = 'at';
+      at.textContent = same ? '여기' : (PLACE_NAME[p.slug] || p.slug || '?');
+      row.append(dot, nm, at);
+      if (!same && p.slug) {
+        const b = document.createElement('button');
+        b.textContent = '가기';
+        b.onclick = () => { location.search = '?place=' + encodeURIComponent(p.slug); };
+        row.appendChild(b);
+      }
+      box.appendChild(row);
+    }
+  }
+
   // ── 자동 순회(검증용) ──
   // 카메라를 계속 움직여 청크가 실제로 로드·해제되게 만든다.
   // 정지 화면 스크린샷으로는 '버릴 때 터지는 버그'를 절대 못 잡는다.
@@ -436,6 +513,17 @@ async function main() {
     const focus = chunks.focusOf(camera);
     chunks.update(focus, CFG.viewRadius);
 
+    // ── 같이 있는 사람들 ──
+    if (net.enabled) {
+      const sp = Math.hypot(rig.vel.x, rig.vel.z);
+      net.update(dt, {
+        x: +camera.position.x.toFixed(2), y: +camera.position.y.toFixed(2),
+        z: +camera.position.z.toFixed(2), yaw: +rig.yaw.toFixed(3),
+        st: sp > CFG.walkSpeed * 1.3 ? 2 : sp > 0.5 ? 1 : 0,
+      });
+      avatars.update(net.peers);
+    }
+
     // ── 미니맵·현재 위치 안내 ──
     minimap.setRange(rig.mode === 'walk' ? 170 : Math.max(180, CFG.viewRadius * 0.75));
     minimap.update(dt, camera);
@@ -460,6 +548,20 @@ async function main() {
       } else {
         lookEl.style.display = 'none';
       }
+      // 같은 동네에 누가 있으면 어느 쪽에 몇 m 있는지 알려 준다.
+      // 이게 없으면 1km² 안에서 서로를 영영 못 찾는다 — 우연에만 맡기면 마주칠 일이 없다.
+      const nearEl = document.getElementById('near');
+      // 25m 안쪽이면 안 띄운다. 그쯤이면 눈에 보이고, 머리 위 이름표와 겹쳐서 지저분하다.
+      const nb = net.enabled ? net.nearest(p2.x, p2.z) : null;
+      if (nb && nb.dist > 25) {
+        const bb = (Math.atan2(nb.p.cx - p2.x, -(nb.p.cz - p2.z)) * 180 / Math.PI + 360) % 360;
+        nearEl.textContent =
+          `${nb.p.name} · ${Math.round(nb.dist)}m ${COMPASS[Math.round(bb / 45) % 8]}쪽`;
+        nearEl.style.display = 'block';
+      } else {
+        nearEl.style.display = 'none';
+      }
+
       // 큰길에 가까울수록 도시 소음이 커진다
       if (soundOn) {
         const ns = chunks.nearestRoadSeg(p2.x, p2.z);
@@ -507,6 +609,30 @@ async function main() {
     tier: CFG.tier, viewRadius: CFG.viewRadius, fov: +camera.fov.toFixed(1),
     pixelRatio: renderer.getPixelRatio(), touchOnly: !!rig.touchOnly,
   });
+
+  // 같이 돌아다니기가 실제로 되는지 밖에서 확인하려고(tests/meet.mjs)
+  window.__net = () => ({
+    on: net.enabled, state: net.state, id: net.myId, name: net.name, slug: net.slug,
+    here: net.peers.size,
+    peers: [...net.peers.entries()].map(([id, p]) => ({
+      id, name: p.name,
+      x: +p.cx.toFixed(1), z: +p.cz.toFixed(1), st: p.st, walked: +p.walked.toFixed(1),
+    })),
+    people: net.people,
+    tags: [...document.querySelectorAll('#tags div')].map(d => d.textContent),
+    near: document.getElementById('near').style.display !== 'none'
+      ? document.getElementById('near').textContent : '',
+    avatarCount: avatars.mesh.count,
+  });
+  window.__teleport = (x, z) => {
+    camera.position.x = x; camera.position.z = z;
+    // 둘러보기 모드는 OrbitControls 가 카메라를 제 자리로 되돌린다. 표적도 같이 옮겨야 한다.
+    if (rig.mode === 'orbit') rig.orbit.target.set(x, 0, z);
+  };
+  window.__lookAt = (x, z) => {
+    rig.yaw = Math.atan2(-(x - camera.position.x), -(z - camera.position.z));
+    rig.pitch = 0;
+  };
 
   window.__stats = () => ({
     errors: window.__errors,
