@@ -6,12 +6,14 @@
 //
 // 미리 띄워 둘 것:  cd web && python -m http.server 8799 --bind 127.0.0.1
 // 사용법:           node tests/static.mjs
+// 진짜 올린 주소로: BASE=https://kkm9471.github.io/yangjae-3d node tests/static.mjs
 
 import puppeteer from 'puppeteer-core';
 
 const CHROME = process.env.CHROME_PATH ||
   'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const PORT = process.env.PORT || 8799;
+const BASE = process.env.BASE || `http://127.0.0.1:${PORT}`;
 
 const browser = await puppeteer.launch({
   executablePath: CHROME,
@@ -26,7 +28,8 @@ page.on('requestfailed', r => failed.push(r.url()));
 const http404 = [];
 page.on('response', r => { if (r.status() >= 400) http404.push(r.url()); });
 
-await page.goto(`http://127.0.0.1:${PORT}/index.html?shot=1&spot=0&hour=20`,
+console.log('주소:', BASE);
+await page.goto(`${BASE}/index.html?shot=1&spot=0&hour=20`,
   { waitUntil: 'networkidle2', timeout: 60000 });
 for (let i = 0; i < 60 && !(await page.evaluate(() => !!window.__ready)); i++) {
   await new Promise(r => setTimeout(r, 500));

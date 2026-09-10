@@ -16,6 +16,7 @@ import path from 'node:path';
 const CHROME = process.env.CHROME_PATH ||
   'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const PORT = process.env.PORT || 8765;
+const BASE = process.env.BASE || `http://127.0.0.1:${PORT}`;
 const OUT = path.resolve('tests/shots');
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -37,7 +38,7 @@ const logs = [];
 page.on('console', m => logs.push(`[${m.type()}] ${m.text()}`));
 page.on('pageerror', e => logs.push(`[pageerror] ${e.message}`));
 
-const url = `http://127.0.0.1:${PORT}/index.html?shot=1&spot=0&hour=20`;
+const url = `${BASE}/index.html?shot=1&spot=0&hour=20`;
 console.log(`기기: ${deviceName}  화면 ${device.viewport.width}x${device.viewport.height}`);
 await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
 
