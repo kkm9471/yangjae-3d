@@ -26,6 +26,7 @@ uniform vec3  uCityGlow;
 uniform float uArtificial;   // 인공조명 세기 (밤 1, 낮 0)
 uniform float uDayLight;     // 햇빛 밝기 (밤 0, 한낮 1)
 uniform vec3  uSkyTop, uSkyHorizon;
+uniform float uSeaOffset;    // 화면 y=0 이 해발 몇 m인지 (지형 색을 고도로 정할 때 쓴다)
 varying vec3  vWorld;
 `;
 
@@ -77,6 +78,7 @@ export function makeSceneUniforms(THREE, CFG) {
     uDayLight:  { value: 0 },
     uSkyTop:    { value: v3(CFG.skyTop) },
     uSkyHorizon:{ value: v3(CFG.skyHorizon) },
+    uSeaOffset: { value: 0 },     // 지형을 읽으면 그 동네 원점의 해발로 채워진다
     uDisk:      { value: v3([1.6, 1.7, 2.0]) },
     uDiskSize:  { value: 0.99975 },
     uStars:     { value: 1 },

@@ -437,9 +437,12 @@ export class ChunkManager {
         }
       }
     }
-    // 보도가 있으면 보도 위(턱을 밟고 올라선 상태), 없으면 차도, 둘 다 없으면 맨땅
+    // 보도가 있으면 보도 위(턱을 밟고 올라선 상태), 없으면 차도, 둘 다 없으면 맨땅.
+    // 지형이 있으면 '맨땅'은 평지 0.05m 가 아니라 그 자리의 산비탈 높이다.
+    // (this.terrain 은 main.js 가 꽂아 준다. 지형 없는 동네에서는 예전과 똑같이 동작한다)
     if (walkY !== null) return walkY;
     if (roadY !== null) return roadY;
+    if (this.terrain && this.terrain.ready) return this.terrain.heightAt(x, z) + 0.05;
     return 0.05;
   }
 

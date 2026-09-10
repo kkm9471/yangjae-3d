@@ -15,6 +15,7 @@ import { ChunkManager } from './core/chunkManager.js';
 import { buildBuildingMesh } from './build/buildings.js';
 import { buildRoadMesh } from './build/roads.js';
 import { createBaseGround, buildAreaMesh } from './build/ground.js';
+import { Terrain } from './build/terrain.js';
 import { buildPropsMesh } from './build/props.js';
 import { buildSignMesh, atlas } from './build/signs.js';
 import { buildPeopleMesh } from './build/people.js';
@@ -96,7 +97,19 @@ async function main() {
   U.uGroundFloorH = { value: CFG.groundFloorH };
 
   scene.add(createSky(U));
-  scene.add(createBaseGround(U, 24000));
+
+  // ── 지형 ──
+  // data/dem/<slug>.bin 이 있으면 산과 바다가 생긴다. 없으면 예전처럼 평평한 판.
+  // 지형이 있으면 평평한 판은 안 깐다 — 두 개가 겹치면 지평선에서 서로 뚫고 나온다.
+  const terrain = new Terrain(scene, U);
+  const hasTerrain = await terrain.load('./data', slug);
+  if (hasTerrain) {
+    U.uSeaOffset.value = terrain.base;      // 화면 y=0 이 해발 몇 m인지
+    console.log(`[지형] ${terrain.meta.name} · ${terrain.meta.nx}x${terrain.meta.nz}`
+      + ` · ${terrain.meta.step}m 간격 · 해발 ${terrain.meta.min}~${terrain.meta.max}m`);
+  } else {
+    scene.add(createBaseGround(U, 24000));
+  }
 
   // ── 청크 빌더 등록 ──
   const builders = [
@@ -112,6 +125,8 @@ async function main() {
     { key: 'car', group: 'car', near: true, fn: (c, u) => buildCarsMesh(c, u) },
   ];
   const chunks = new ChunkManager(scene, U, index, builders, dataBase);
+  // 도로가 없는 자리(산·들)에서는 발밑 높이를 지형에서 읽는다
+  if (hasTerrain) chunks.terrain = terrain;
   window.__chunks = chunks;
 
   // ── 후처리(빛 번짐) ──
@@ -510,6 +525,7 @@ async function main() {
     } else {
       rig.update(dt);
     }
+    if (hasTerrain) terrain.update(camera);
     const focus = chunks.focusOf(camera);
     chunks.update(focus, CFG.viewRadius);
 
@@ -606,6 +622,12 @@ async function main() {
 
   // 기기 판정이 맞았는지 밖에서 확인하려고 열어 둔다(tests/touch.mjs)
   window.__diag = () => ({
+    terrain: hasTerrain ? {
+      name: terrain.meta.name, min: terrain.meta.min, max: terrain.meta.max,
+      step: terrain.meta.step, base: +terrain.base.toFixed(1),
+      hereY: +terrain.heightAt(camera.position.x, camera.position.z).toFixed(1),
+      sea: terrain.isSea(camera.position.x, camera.position.z),
+    } : null,
     tier: CFG.tier, viewRadius: CFG.viewRadius, fov: +camera.fov.toFixed(1),
     pixelRatio: renderer.getPixelRatio(), touchOnly: !!rig.touchOnly,
   });

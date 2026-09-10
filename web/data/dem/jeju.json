@@ -1,0 +1,18 @@
+{
+ "slug": "jeju",
+ "name": "제주도",
+ "lat": 33.36,
+ "lon": 126.55,
+ "halfX": 45000.0,
+ "halfZ": 30000.0,
+ "step": 60.0,
+ "nx": 1501,
+ "nz": 1001,
+ "unit": 0.1,
+ "min": -94.0,
+ "max": 1935.0,
+ "seaLevel": 0.0,
+ "source": "AWS terrarium (SRTM/ASTER 등)",
+ "zoom": 12,
+ "madeAt": "2026-09-10 10:58:15"
+}
