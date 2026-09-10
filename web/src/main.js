@@ -116,6 +116,7 @@ async function main() {
     }
     // 하늘 돔은 시야보다 조금 안쪽에 둔다(밖에 있으면 잘려 나간다)
     scene.add(createSky(U, camera.far * 0.92));
+
     console.log(`[지형] ${terrain.meta.name} · ${terrain.meta.nx}x${terrain.meta.nz}`
       + ` · ${terrain.meta.step}m 간격 · 해발 ${terrain.meta.min}~${terrain.meta.max}m`);
     if (!terrain.viewNeeds) scene.add(createSky(U));
@@ -154,6 +155,11 @@ async function main() {
 
   // ── 조작 ──
   const rig = new CameraRig(camera, renderer.domElement, chunks);
+  // 넓은 지역에서는 둘러보기의 최대 거리도 넓힌다. 기본 2.4km 로 두면 90km 짜리 섬에서
+  // 카메라가 표적 근처로 끌려와 엉뚱한 데를 비춘다(실제로 그랬다).
+  if (hasTerrain && terrain.viewNeeds) {
+    rig.orbit.maxDistance = Math.max(2400, terrain.viewNeeds.far * 0.55);
+  }
   // 아이폰 사파리에는 Pointer Lock 이 없다. 터치 기기에서는 조이스틱으로 걷는다.
   rig.touchOnly = isTouchDevice();
   rig.touch = new TouchControls(rig, renderer.domElement);
