@@ -1,0 +1,16 @@
+name = "yangjae-world"
+main = "src/world.js"
+compatibility_date = "2025-04-10"
+
+# 무료 플랜에서는 SQLite 방식 Durable Object 만 쓸 수 있다.
+# (그래서 new_sqlite_classes 다. new_classes 로 적으면 무료 플랜에서 배포가 거부된다)
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["World"]
+
+[[durable_objects.bindings]]
+name = "WORLD"
+class_name = "World"
+
+[observability]
+enabled = true
