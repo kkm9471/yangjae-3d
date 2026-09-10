@@ -27,13 +27,14 @@ function quiet(cmd) {
   }
 }
 
-/** 화면에 그대로 띄우며 돌린다(사람이 답할 수 있게) */
+/** 화면에 그대로 띄우며 돌린다(사람이 답할 수 있게).
+ *  오류 내용은 따로 받아 둔다 — 그래야 "그래서 뭘 하라는 거냐"를 대신 알려 줄 수 있다. */
 function loud(cmd) {
   try {
-    execSync(cmd, { cwd: HERE, stdio: 'inherit' });
-    return true;
-  } catch {
-    return false;
+    execSync(cmd, { cwd: HERE, encoding: 'utf8', stdio: ['inherit', 'inherit', 'pipe'] });
+    return { ok: true, out: '' };
+  } catch (e) {
+    return { ok: false, out: (e.stderr || '') + (e.stdout || '') };
   }
 }
 
@@ -48,20 +49,36 @@ if (!r.ok && /workers\.dev subdomain/i.test(r.out)) {
   console.log(' 아래에서 물어보면 원하는 이름을 적고 엔터를 누르세요.');
   console.log(' (그러면 서버 주소가 https://yangjae-world.<그이름>.workers.dev 가 됩니다)');
   console.log('─'.repeat(60) + '\n');
-  loud('npx wrangler deploy');       // 이번엔 가로채지 않는다 → 물어볼 수 있다
-  r = quiet('npx wrangler deploy');  // 주소를 받아내려고 한 번 더 (이미 올라가 있어 금방 끝난다)
+  const L = loud('npx wrangler deploy');   // 이번엔 가로채지 않는다 → 물어볼 수 있다
+  // 성공했을 때만 주소를 받아내려고 한 번 더 돌린다.
+  // 실패했는데 또 돌리면 같은 오류가 두 번 쏟아져서 뭐가 문제인지 더 안 보인다.
+  r = L.ok ? quiet('npx wrangler deploy') : L;
 }
 
 if (!r.ok) {
-  console.error(r.out);
-  if (/not authenticated|wrangler login/i.test(r.out)) {
+  const t = r.out || '';
+  // 자주 걸리는 것들은 원문 대신 할 일을 알려 준다.
+  // 영어 오류 원문을 그대로 던지면 "그래서 뭘 하라는 거지"로 끝난다.
+  if (/verify your email|10034/i.test(t)) {
+    console.error('\n[먼저 할 일] Cloudflare 가 이메일 인증을 요구합니다.');
+    console.error('   1) 가입할 때 쓴 이메일함에서 Cloudflare 인증 메일의 링크를 누르세요.');
+    console.error('   2) 메일이 없으면 https://dash.cloudflare.com 에 로그인하면');
+    console.error('      위쪽에 "Verify your email" 배너와 Resend 버튼이 있습니다.');
+    console.error('   3) 인증한 뒤 이 창(서버올리기.bat)을 다시 실행하세요.');
+    if (t) console.error('\n--- 원래 메시지 ---\n' + t.trim().slice(0, 900));
+  } else if (/not authenticated|wrangler login/i.test(t)) {
     console.error('\n[먼저 할 일] Cloudflare 로그인이 안 돼 있습니다.');
     console.error('   server 폴더에서  npx wrangler login  을 실행하고');
     console.error('   브라우저가 열리면 Allow 를 누르세요. (무료 계정이면 됩니다)');
-  } else if (/workers\.dev subdomain/i.test(r.out)) {
+  } else if (/workers\.dev subdomain/i.test(t)) {
     console.error('\n[먼저 할 일] 계정에 "내 주소"를 정해야 합니다.');
     console.error('   위 메시지에 있는 dash.cloudflare.com 링크를 브라우저로 열어');
     console.error('   원하는 이름을 하나 정한 뒤, 이 창을 다시 실행하세요.');
+  } else if (t.trim()) {
+    console.error(t);
+  } else {
+    console.error('\n[실패] 위에 wrangler 가 찍은 메시지를 보세요.');
+    console.error('   자주 걸리는 것: 이메일 인증 · 로그인 · 계정 주소 정하기');
   }
   process.exit(1);
 }
