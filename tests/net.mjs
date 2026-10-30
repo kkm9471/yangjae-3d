@@ -123,6 +123,71 @@ await sleep(500);
 console.log('\n[나가기]');
 ok(b.of('left').length > 0, '나간 사람이 사라짐');
 
+// ── 돈 상한 (2026-10-31): 공개 주소라 누구나 붙을 수 있다 ──
+/** 연결이 서버에 끊겼는지(닫힘 코드) 기다린다 */
+const closedCode = (x, ms = 3000) => new Promise(res => {
+  if (x.ws.readyState === 3) return res('이미 닫힘');
+  x.ws.addEventListener('close', e => res(e.code));
+  setTimeout(() => res(null), ms);
+});
+console.log('\n[메시지 상한]');
+{
+  // 닫힘 기다리기를 먼저 걸고 보낸다 (먼저 보내면 기다리기 전에 닫혀 코드를 놓친다)
+  const big = await connect('큰글'); const pb = closedCode(big); big.ws.send('x'.repeat(2000));
+  const bin = await connect('이진'); const pn = closedCode(bin); bin.ws.send(new Uint8Array(16));
+  const [cb, cn] = await Promise.all([pb, pn]);
+  ok(cb === 1009 && cn === 1003, '1KB 넘는 메시지·이진 메시지 → 그 연결만 끊음', `${cb} · ${cn}`);
+  const fl = await connect('폭주'); const pf = closedCode(fl);
+  for (let i = 0; i < 100; i++) fl.send({ t: 'p', x: i, y: 1.68, z: 0, yaw: 0, st: 1 });
+  ok(await pf === 1008, '한꺼번에 100개 → 끊음(초당 20개·몰아서 40개 상한)');
+  // 정상 화면처럼 초당 8번씩 3초 → 그대로
+  const nm = await connect('정상');
+  nm.send({ t: 'hi', name: '정상', slug: 'yangjae' });
+  let gone = null; nm.ws.addEventListener('close', e => { gone = e.code; });
+  for (let i = 0; i < 24; i++) { nm.send({ t: 'p', x: i, y: 1.68, z: 0, yaw: 0, st: 1 }); await sleep(125); }
+  nm.send({ t: 'place', slug: 'haeundae' }); nm.send({ t: 'place', slug: 'yangjae' });   // 동네 빨리 두 번 옮기기도 괜찮음
+  await sleep(300);
+  ok(gone === null, '초당 8번 움직임 3초 + 동네 두 번 옮기기 → 끊기지 않음');
+  a.send({ t: 'p', x: 1, y: 1.68, z: 1, yaw: 0, st: 0 }); await sleep(200);
+  ok(a.ws.readyState === 1, '다른 사람 연결은 그대로');
+  nm.close();
+}
+
+console.log('\n[접속 상한 30명]');
+{
+  await sleep(300);
+  const http = URL_WS.replace(/^ws/, 'http');
+  const now0 = (await (await fetch(http)).json()).people;
+  const more = [];
+  for (let i = now0; i < 30; i++) more.push(await connect('채움' + i));
+  await sleep(200);
+  const full = (await (await fetch(http)).json()).people;
+  let refused = false;
+  try { const x = await connect('31번째'); refused = await closedCode(x, 2000) !== null; } catch { refused = true; }
+  ok(full === 30 && refused, '30명이 차면 31번째는 못 들어옴', `지금 ${full}명`);
+  for (const x of more) x.close();
+  await sleep(500);
+  let back = false;
+  try { const y = await connect('다시'); back = y.ws.readyState === 1; y.close(); } catch { /* */ }
+  ok(back, '자리가 나면 다시 들어옴');
+}
+
+console.log('\n[접속 출처]');
+{
+  const { default: WSO } = await import('ws');
+  const tryO = o => new Promise(res => {
+    const w = new WSO(URL_WS, { origin: o });
+    w.on('open', () => { res('열림'); w.close(); });
+    w.on('unexpected-response', (_q, r) => res(r.statusCode));
+    w.on('error', () => res('오류'));
+    setTimeout(() => res('시간초과'), 5000);
+  });
+  const g1 = await tryO('https://kkm9471.github.io'), g2 = await tryO('http://127.0.0.1:8765');
+  const b1 = await tryO('https://evil.example'), b2 = await tryO('https://kkm9471.github.io.evil.com');
+  ok(g1 === '열림' && g2 === '열림', '공개 사이트·로컬 출처 → 접속', `${g1}, ${g2}`);
+  ok(b1 === 403 && b2 === 403, '남의 사이트 출처 → 403', `${b1}, ${b2}`);
+}
+
 a.close(); b.close(); c.close();
 await sleep(200);
 console.log(fail.length ? `\n❌ 실패 ${fail.length}건: ${fail.join(', ')}` : '\n✅ 실시간 서버 전부 통과');
