@@ -15,6 +15,12 @@
 const TICK_MS = 3000;          // 이 간격으로 "누가 어느 동네에 있나"를 알려 준다
 const MAX_NAME = 12;           // 이름 길이 제한 (링크를 아는 사람은 누구나 들어온다)
 const IDLE_MS = 45000;         // 이만큼 아무 소식 없으면 끊긴 것으로 본다
+// 돈 상한 (2026-10-31): 주소가 공개돼 있어 누구나 붙을 수 있다. 정상 화면은 초당 8번 이하·한 번에 100바이트 남짓만 보낸다.
+const MAX_PEERS = 30;          // 동시 접속 상한
+const MAX_MSG = 1024;          // 메시지 한 개 크기 상한 (글자 수)
+const RATE = 20, BURST = 40;   // 연결마다 초당 20개 (잠깐 몰아 보내기는 40개까지) — 넘으면 끊는다
+// 접속 출처: 공개 사이트와 이 PC 로컬 서버(127.0.0.1·localhost)만. 출처 머리말이 없는 접속(시험 도구)은 그대로 받는다.
+const ORIGIN_OK = /^(https:\/\/kkm9471\.github\.io|http:\/\/(127\.0\.0\.1|localhost)(:\d+)?)$/;
 
 /** 남이 지은 이름을 그대로 화면에 올리면 안 된다. 글자만 남기고 잘라 낸다. */
 function cleanName(s) {
@@ -47,6 +53,9 @@ export class World {
         headers: { 'content-type': 'application/json' },
       });
     }
+    // 가득 찼으면 오래 조용한 연결부터 정리해 보고, 그래도 가득이면 받지 않는다
+    if (this.peers.size >= MAX_PEERS) this.sendWhere(true);
+    if (this.peers.size >= MAX_PEERS) return new Response('full', { status: 503 });
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     server.accept();
@@ -54,10 +63,14 @@ export class World {
     const me = {
       id: 'p' + (this.nextId++), name: '손님', slug: '',
       x: 0, y: 1.68, z: 0, yaw: 0, st: 0, seen: Date.now(),
+      tok: BURST, tt: Date.now(),
     };
     this.peers.set(server, me);
 
     server.addEventListener('message', ev => {
+      // 이진·큰 메시지, 너무 잦은 메시지는 정상 화면이 보내지 않는다 → 끊는다
+      const bad = typeof ev.data !== 'string' ? 1003 : ev.data.length > MAX_MSG ? 1009 : !this.allow(me) ? 1008 : 0;
+      if (bad) { try { server.close(bad, 'limit'); } catch { /* 이미 닫힘 */ } this.drop(server, me); return; }
       try { this.onMessage(server, me, JSON.parse(ev.data)); } catch { /* 깨진 메시지는 무시 */ }
     });
     const gone = () => this.drop(server, me);
@@ -115,6 +128,16 @@ export class World {
     }
   }
 
+  /** 연결마다 초당 메시지 수 (토큰 통) */
+  allow(me) {
+    const now = Date.now();
+    me.tok = Math.min(BURST, me.tok + (now - me.tt) / 1000 * RATE);
+    me.tt = now;
+    if (me.tok < 1) return false;
+    me.tok -= 1;
+    return true;
+  }
+
   drop(ws, me) {
     if (!this.peers.has(ws)) return;
     this.peers.delete(ws);
@@ -166,6 +189,8 @@ export default {
         status: 404, headers: cors(),
       });
     }
+    const origin = request.headers.get('Origin');
+    if (origin && !ORIGIN_OK.test(origin)) return new Response('forbidden origin', { status: 403, headers: cors() });
     // 방 이름 하나만 쓴다. 사람이 몇 명 수준이라 나눌 이유가 없다.
     const id = env.WORLD.idFromName('world-v1');
     return env.WORLD.get(id).fetch(request);

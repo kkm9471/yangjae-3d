@@ -14,3 +14,5 @@ class_name = "World"
 
 [observability]
 enabled = true
+# 로그는 100번 중 1번만 남긴다 (기본 1 = 전부). 폭주 때 로그 요금이 요청 요금보다 커지지 않게 — 2026-10-31
+head_sampling_rate = 0.01
