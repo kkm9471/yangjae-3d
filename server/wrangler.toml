@@ -1,5 +1,5 @@
 name = "yangjae-world"
-account_id = "defcdabcbcfd293e28d6051a19cc3020"   # 11/2 미니롤 세션: wrangler 로그인 계정이 2개(미니롤 무료 계정 추가)라 적음 — 예전과 같은 계정(Rudah9471@gmail.com's Account)
+account_id = "defcdabcbcfd293e28d6051a19cc3020"   # 11/2 미니롤 세션: wrangler 로그인 계정이 2개(미니롤 무료 계정 추가)라 적음 — 예전과 같은 유료 계정(11/22: 주석에 있던 메일 주소는 지움 — 공개 저장소)
 main = "src/world.js"
 compatibility_date = "2025-04-10"
 
